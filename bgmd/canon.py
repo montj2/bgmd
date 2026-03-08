@@ -59,6 +59,9 @@ class Canon:
 
     def get_book(self, identifier: str) -> Optional[Book]:
         identifier = identifier.lower().replace(" ", "")
+        # Normalize Psalm/Psalms
+        if identifier == "psalm":
+            identifier = "psalms"
         # Try slug first
         if identifier in self._slug_map:
             return self._slug_map[identifier]

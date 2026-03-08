@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "rich>=13.0",
+    "icalendar>=7.0",
 ]
 
 [project.optional-dependencies]
