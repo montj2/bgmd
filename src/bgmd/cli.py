@@ -10,6 +10,7 @@ from bgmd.formatter import Formatter
 from bgmd.translations import COMMON_TRANSLATIONS, get_translation
 from bgmd.lectionary import LectionaryProvider
 from bgmd.config import config
+from bgmd.models import ComparisonDoc, PassageDoc
 from rich import print
 from rich.table import Table
 from pathlib import Path
@@ -30,16 +31,15 @@ def parse_reference(ref: str):
     
     return book, chapter, start_v, end_v
 
-async def _fetch_and_format(
+async def _fetch_doc(
     reference: str,
     translation: str,
     canon_name: str,
-    mode: str,
     no_cache: bool,
     no_randomize: bool,
     no_jitter: bool,
     debug: bool
-) -> Optional[str]:
+) -> Optional[PassageDoc]:
     canon = Canon(canon_name)
     parsed = parse_reference(reference)
     if not parsed:
@@ -52,7 +52,6 @@ async def _fetch_and_format(
         print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
         return None
 
-    # Respect custom cache dir if set
     cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
     fetcher = Fetcher(translation, cache_dir=cache_dir)
     
@@ -67,8 +66,21 @@ async def _fetch_and_format(
     )
     
     parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v)
-    doc = parser.parse(html)
-    
+    return parser.parse(html)
+
+async def _fetch_and_format(
+    reference: str,
+    translation: str,
+    canon_name: str,
+    mode: str,
+    no_cache: bool,
+    no_randomize: bool,
+    no_jitter: bool,
+    debug: bool
+) -> Optional[str]:
+    doc = await _fetch_doc(reference, translation, canon_name, no_cache, no_randomize, no_jitter, debug)
+    if not doc:
+        return None
     formatter = Formatter(mode)
     return formatter.format(doc)
 
@@ -85,8 +97,44 @@ def fetch(
 ):
     """Fetch a Bible passage."""
     async def run():
-        output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
-        if output: print(output)
+        # Support multiple translations in fetch if comma separated
+        if ',' in translation:
+            translations = [t.strip() for t in translation.split(',')]
+            docs = []
+            for t in translations:
+                doc = await _fetch_doc(reference, t, canon_name, no_cache, no_randomize, no_jitter, debug)
+                if doc: docs.append(doc)
+            
+            if docs:
+                comp = ComparisonDoc(reference=reference, translations=translations, docs=docs)
+                output = Formatter(mode).format_comparison(comp)
+                print(output)
+        else:
+            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
+            if output: print(output)
+
+    asyncio.run(run())
+
+@app.command()
+def compare(
+    reference: str,
+    translations: str = typer.Option(config.settings.translation, "--translations", "-t", help="Comma-separated translation codes"),
+    layout: str = typer.Option("table", "--layout", "-l", help="Layout (table, interleaved)"),
+    canon_name: str = typer.Option(config.settings.canon, "--canon"),
+    no_cache: bool = typer.Option(False, "--no-cache"),
+):
+    """Compare multiple translations side-by-side."""
+    async def run():
+        trans_list = [t.strip() for t in translations.split(',')]
+        docs = []
+        for t in trans_list:
+            doc = await _fetch_doc(reference, t, canon_name, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
+            if doc: docs.append(doc)
+        
+        if docs:
+            comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
+            output = Formatter().format_comparison(comp, layout=layout)
+            print(output)
 
     asyncio.run(run())
 
@@ -139,7 +187,6 @@ def config_show():
 def config_set(key: str, value: str):
     """Set a configuration value."""
     try:
-        # Handle boolean strings
         if value.lower() in ["true", "1", "yes"]:
             typed_value = True
         elif value.lower() in ["false", "0", "no"]:

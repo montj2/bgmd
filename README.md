@@ -46,6 +46,16 @@ python -m bgmd.cli fetch "John 3"
 bgmd fetch "John 3:16-21"
 ```
 
+### Comparing Translations
+Compare multiple versions side-by-side:
+```bash
+bgmd compare "John 3:16" --translations "NABRE,RSVCE"
+```
+Or use a comma-separated list with the `fetch` command:
+```bash
+bgmd fetch "Psalm 23" -t "NABRE,KJV,RSVCE"
+```
+
 ### Fetching Daily Readings
 Fetch today's lectionary readings:
 ```bash

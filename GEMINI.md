@@ -34,6 +34,10 @@ pip install typer[all] curl-cffi beautifulsoup4 lxml rich
   ```bash
   python -m bgmd.cli fetch "John 3" --translation RSVCE
   ```
+- **Compare translations:**
+  ```bash
+  python -m bgmd.cli compare "John 3:16" --translations "NABRE,RSVCE"
+  ```
 - **List supported translations:**
   ```bash
   python -m bgmd.cli translations

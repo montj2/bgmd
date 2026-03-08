@@ -1,4 +1,5 @@
-from bgmd.models import PassageDoc
+from bgmd.models import PassageDoc, ComparisonDoc
+from typing import List, Dict
 
 class Formatter:
     def __init__(self, mode: str = "obsidian"):
@@ -8,6 +9,56 @@ class Formatter:
         if self.mode == "obsidian":
             return self._format_obsidian(doc)
         return self._format_plain(doc)
+
+    def format_comparison(self, comp: ComparisonDoc, layout: str = "table") -> str:
+        if layout == "table":
+            return self._format_comparison_table(comp)
+        return self._format_comparison_interleaved(comp)
+
+    def _format_comparison_table(self, comp: ComparisonDoc) -> str:
+        lines = [f"# Comparison: {comp.reference}", ""]
+        
+        # Header row
+        header = "| Verse | " + " | ".join(comp.translations) + " |"
+        sep = "| :--- | " + " | ".join([":---"] * len(comp.translations)) + " |"
+        lines.append(header)
+        lines.append(sep)
+        
+        # Get all verse numbers across all docs
+        all_nums = set()
+        for doc in comp.docs:
+            all_nums.update(v.number for v in doc.verses)
+        
+        for v_num in sorted(all_nums):
+            row = f"| {v_num} | "
+            verse_texts = []
+            for doc in comp.docs:
+                v = next((v for v in doc.verses if v.number == v_num), None)
+                text = v.text if v else "_"
+                # Cleanup text for table
+                text = text.replace("|", "\\|").replace("\n", " ")
+                verse_texts.append(text)
+            row += " | ".join(verse_texts) + " |"
+            lines.append(row)
+            
+        return "\n".join(lines)
+
+    def _format_comparison_interleaved(self, comp: ComparisonDoc) -> str:
+        lines = [f"# Comparison: {comp.reference}", ""]
+        
+        all_nums = set()
+        for doc in comp.docs:
+            all_nums.update(v.number for v in doc.verses)
+            
+        for v_num in sorted(all_nums):
+            lines.append(f"### Verse {v_num}")
+            for doc in comp.docs:
+                v = next((v for v in doc.verses if v.number == v_num), None)
+                if v:
+                    lines.append(f"**{doc.translation}**: {v.text}")
+            lines.append("")
+            
+        return "\n".join(lines)
 
     def _format_obsidian(self, doc: PassageDoc) -> str:
         lines = []
@@ -53,7 +104,6 @@ class Formatter:
                 
                 # Add inline footnotes if applicable
                 for fn_ref in verse.footnote_refs:
-                    # Clean up refs like "a" or "1"
                     text += f"^[{fn_ref}]"
                 
                 lines.append(f"###### {v_num}")

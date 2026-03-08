@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List, Dict
 
 @dataclass
 class Verse:
@@ -46,3 +46,9 @@ class PassageDoc:
             if self.end_verse and self.end_verse != self.start_verse:
                 ref += f"-{self.end_verse}"
         return ref
+
+@dataclass
+class ComparisonDoc:
+    reference: str
+    translations: List[str]
+    docs: List[PassageDoc] = field(default_factory=list)
