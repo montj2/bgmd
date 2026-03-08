@@ -10,6 +10,7 @@
 - **Global Caching:** Automatically stores fetched HTML in a centralized cache (`~/.cache/bgmd`) to minimize server hits and improve performance.
 - **Advanced Fetching & Randomization:** Powered by `curl_cffi` with **browser impersonation rotation** and **request jitter** to mimic human behavior and bypass bot detection.
 - **Catholic Canon Support:** Built-in support for the full Catholic canon (73 books), including Deuterocanonical books.
+- **Psalm Numbering Mapping:** Automatically maps standard (Masoretic) Psalm numbers to the traditional Greek/Latin system used in versions like `DRA` and `VULGATE`.
 - **Flexible Translations:** Supports any translation available on Bible Gateway (e.g., NABRE, RSVCE, KJV, ESV).
 
 ## Installation & Usage with `uv`

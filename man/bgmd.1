@@ -1,4 +1,4 @@
-.TH BGMD 1 "March 2026" "0.1.4" "bgmd Manual"
+.TH BGMD 1 "March 2026" "0.1.6" "bgmd Manual"
 .SH NAME
 bgmd \- Modern Bible Gateway to Markdown tool
 .SH SYNOPSIS
@@ -47,6 +47,9 @@ Disable browser impersonation rotation.
 .TP
 .B \-\-no\-jitter
 Disable randomized delays between network requests.
+.TP
+.B \-\-no\-psalm\-map
+Disable automatic Psalm numbering mapping for Vulgate-style translations (DRA, VULGATE). By default, bgmd maps standard Masoretic numbers to their traditional equivalents.
 .TP
 .B \-\-debug
 Enable verbose output and write intermediate debug files.

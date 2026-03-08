@@ -11,6 +11,7 @@ from bgmd.translations import COMMON_TRANSLATIONS, get_translation
 from bgmd.lectionary import LectionaryProvider
 from bgmd.config import config
 from bgmd.models import ComparisonDoc, PassageDoc
+from bgmd.psalms import VULGATE_NUMBERED_VERSIONS, map_mt_to_vulgate
 from rich.console import Console
 from rich.table import Table
 from pathlib import Path
@@ -40,7 +41,8 @@ async def _fetch_doc(
     no_cache: bool,
     no_randomize: bool,
     no_jitter: bool,
-    debug: bool
+    debug: bool,
+    no_psalm_map: bool = False
 ) -> Optional[PassageDoc]:
     canon = Canon(canon_name)
     parsed = parse_reference(reference)
@@ -54,19 +56,41 @@ async def _fetch_doc(
         console.print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
         return None
 
+    # Psalm Mapping
+    actual_chapter = chapter
+    actual_start_v = start_v
+    actual_end_v = end_v
+    if book.slug == "psalms" and translation.upper() in VULGATE_NUMBERED_VERSIONS and not no_psalm_map:
+        mapped_ch, mapped_start, mapped_end, note = map_mt_to_vulgate(chapter, start_v, end_v)
+        if mapped_ch != chapter or note:
+            if not debug: # Don't double print if debug is on
+                msg = f"[cyan]Mapping {book.display_name} {chapter}"
+                if start_v: msg += f":{start_v}"
+                msg += f" -> {book.display_name} {mapped_ch}"
+                if mapped_start: msg += f":{mapped_start}"
+                msg += f" for {translation}[/cyan]"
+                console.print(msg)
+                if note: console.print(f"[italic]{note}[/italic]")
+            
+            actual_chapter = mapped_ch
+            actual_start_v = mapped_start
+            actual_end_v = mapped_end
+
     cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
     fetcher = Fetcher(translation, cache_dir=cache_dir)
     
     html = await fetcher.fetch_reference(
         book.bg_name, 
-        chapter, 
-        start_v, 
-        end_v,
+        actual_chapter, 
+        actual_start_v, 
+        actual_end_v,
         use_cache=not no_cache,
         randomize=not no_randomize,
         jitter=not no_jitter
     )
     
+    # We pass the ORIGINAL reference info to the parser so the output Markdown
+    # labels it as requested (e.g. "Psalm 23") but uses the "mapped" content.
     parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v)
     return parser.parse(html)
 
@@ -78,9 +102,10 @@ async def _fetch_and_format(
     no_cache: bool,
     no_randomize: bool,
     no_jitter: bool,
-    debug: bool
+    debug: bool,
+    no_psalm_map: bool = False
 ) -> Optional[str]:
-    doc = await _fetch_doc(reference, translation, canon_name, no_cache, no_randomize, no_jitter, debug)
+    doc = await _fetch_doc(reference, translation, canon_name, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
     if not doc:
         return None
     formatter = Formatter(mode)
@@ -96,6 +121,7 @@ def fetch(
     no_cache: bool = typer.Option(False, "--no-cache", help="Skip local cache"),
     no_randomize: bool = typer.Option(config.settings.no_randomize, "--no-randomize", help="Disable randomization"),
     no_jitter: bool = typer.Option(config.settings.no_jitter, "--no-jitter", help="Disable delay"),
+    no_psalm_map: bool = typer.Option(False, "--no-psalm-map", help="Disable automatic Psalm numbering mapping for Vulgate versions"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug output"),
 ):
     """Fetch a Bible passage."""
@@ -104,7 +130,7 @@ def fetch(
             translations = [t.strip() for t in translation.split(',')]
             docs = []
             for t in translations:
-                doc = await _fetch_doc(reference, t, canon_name, no_cache, no_randomize, no_jitter, debug)
+                doc = await _fetch_doc(reference, t, canon_name, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
                 if doc: docs.append(doc)
             
             if docs:
@@ -112,7 +138,7 @@ def fetch(
                 output = Formatter(mode).format_comparison(comp, layout=layout)
                 sys.stdout.write(output + "\n")
         else:
-            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
+            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
             if output: sys.stdout.write(output + "\n")
 
     asyncio.run(run())
@@ -123,6 +149,7 @@ def compare(
     translations: str = typer.Option(config.settings.translation, "--translations", "-t", help="Comma-separated translation codes"),
     layout: str = typer.Option("table", "--layout", "-l", help="Layout (table, interleaved)"),
     canon_name: str = typer.Option(config.settings.canon, "--canon"),
+    no_psalm_map: bool = typer.Option(False, "--no-psalm-map", help="Disable automatic Psalm mapping"),
     no_cache: bool = typer.Option(False, "--no-cache"),
 ):
     """Compare multiple translations side-by-side."""
@@ -130,7 +157,7 @@ def compare(
         trans_list = [t.strip() for t in translations.split(',')]
         docs = []
         for t in trans_list:
-            doc = await _fetch_doc(reference, t, canon_name, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
+            doc = await _fetch_doc(reference, t, canon_name, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
             if doc: docs.append(doc)
         
         if docs:
@@ -146,6 +173,7 @@ def lectionary(
     translation: str = typer.Option(config.settings.translation, "--translation", "-t", help="Translation code(s), comma-separated for comparison"),
     mode: str = typer.Option(config.settings.mode, "--mode", "-m"),
     layout: str = typer.Option("table", "--layout", "-l", help="Comparison layout (table, interleaved)"),
+    no_psalm_map: bool = typer.Option(False, "--no-psalm-map", help="Disable automatic Psalm mapping"),
     no_cache: bool = typer.Option(False, "--no-cache"),
 ):
     """Fetch daily lectionary readings for a given date."""
@@ -163,7 +191,7 @@ def lectionary(
 
         console.print(f"Readings for [bold green]{summary}[/bold green]:")
         for ref in refs:
-            console.print(f"  - {ref}")
+            print(f"  - {ref}")
         console.print("-" * 20)
 
         is_comparison = ',' in translation
@@ -174,13 +202,13 @@ def lectionary(
             if is_comparison:
                 docs = []
                 for t in trans_list:
-                    doc = await _fetch_doc(ref, t, config.settings.canon, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
+                    doc = await _fetch_doc(ref, t, config.settings.canon, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
                     if doc: docs.append(doc)
                 if docs:
                     comp = ComparisonDoc(reference=ref, translations=[d.translation for d in docs], docs=docs)
                     sys.stdout.write(Formatter(mode).format_comparison(comp, layout=layout) + "\n")
             else:
-                output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
+                output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
                 if output:
                     sys.stdout.write(output + "\n")
             

@@ -1,10 +1,21 @@
 [project]
 name = "bgmd"
-version = "0.1.5"
-description = "Modern Bible Gateway to Markdown tool"
+version = "0.1.6"
+description = "Modern Bible Gateway to Markdown tool optimized for Obsidian"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 authors = [
     { name = "Your Name", email = "your.email@example.com" }
+]
+keywords = ["bible", "markdown", "obsidain", "lectionary", "biblegateway"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Religion",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Text Processing :: Markup :: Markdown",
 ]
 dependencies = [
     "typer>=0.12",
@@ -25,6 +36,11 @@ dev = [
     "mypy",
 ]
 
+[project.urls]
+Homepage = "https://github.com/yourusername/bgmd"
+Repository = "https://github.com/yourusername/bgmd"
+Issues = "https://github.com/yourusername/bgmd/issues"
+
 [project.scripts]
 bgmd = "bgmd.cli:app"
 
@@ -35,6 +51,9 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bgmd*"]
+
+[tool.setuptools.package-data]
+"bgmd.books" = ["*.csv"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
