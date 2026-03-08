@@ -13,13 +13,20 @@ class Fetcher:
         "firefox133"
     ]
 
-    def __init__(self, translation: str = "NABRE", cache_dir: str = ".bgmd_cache"):
+    def __init__(self, translation: str = "NABRE", cache_dir: Optional[Path] = None):
         self.translation = translation
         self.base_url = "https://www.biblegateway.com/passage/"
-        self.cache_dir = Path(cache_dir)
+        
+        # Default to global cache in home directory
+        if cache_dir is None:
+            self.cache_dir = Path.home() / ".cache" / "bgmd"
+        else:
+            self.cache_dir = cache_dir
+            
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_cache_path(self, book_bg_name: str, chapter: int) -> Path:
+        # Sanitize name for filename
         safe_name = book_bg_name.replace("+", "_").lower()
         return self.cache_dir / self.translation.upper() / f"{safe_name}_{chapter}.html"
 
@@ -69,7 +76,7 @@ class Fetcher:
 if __name__ == "__main__":
     async def test():
         fetcher = Fetcher()
-        print("Testing randomized fetch...")
+        print(f"Testing fetch with global cache at {fetcher.cache_dir}...")
         html = await fetcher.fetch_chapter("John", 3, use_cache=False, randomize=True)
         print(f"Fetched John 3 (length: {len(html)})")
     asyncio.run(test())
