@@ -59,6 +59,7 @@ class Canon:
                 raise ValueError(f"Canon '{self.name}' not found.")
 
     def get_book(self, identifier: str) -> Optional[Book]:
+        orig = identifier
         identifier = identifier.lower().replace(" ", "")
         # Normalize Psalm/Psalms
         if identifier == "psalm":
@@ -70,4 +71,6 @@ class Canon:
         for name, book in self._name_map.items():
             if name.replace(" ", "") == identifier:
                 return book
+        # print(f"DEBUG: Book not found for '{orig}' (normalized: '{identifier}') in canon '{self.name}'")
+        # print(f"DEBUG: Slugs: {list(self._slug_map.keys())[:5]}...")
         return None
