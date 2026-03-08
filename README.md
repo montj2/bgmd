@@ -6,6 +6,7 @@
 
 - **Robust DOM Parsing:** Uses BeautifulSoup4 to surgically extract verse text, section headers, and metadata, avoiding the fragility of regex-based scrapers.
 - **Obsidian Optimized:** Automatically generates YAML front matter, H6 verse markers (for CSS styling), and inline footnotes compatible with Obsidian's internal linking.
+- **Daily Lectionary Support:** Integrated with the Vanderbilt Revised Common Lectionary to automatically fetch daily readings.
 - **Global Caching:** Automatically stores fetched HTML in a centralized cache (`~/.cache/bgmd`) to minimize server hits and improve performance.
 - **Advanced Fetching & Randomization:** Powered by `curl_cffi` with **browser impersonation rotation** and **request jitter** to mimic human behavior and bypass bot detection.
 - **Catholic Canon Support:** Built-in support for the full Catholic canon (73 books), including Deuterocanonical books.
@@ -34,7 +35,7 @@ uvx --from . bgmd fetch "John 3"
 ### Development
 If you prefer a traditional virtual environment:
 ```bash
-pip install typer[all] curl-cffi beautifulsoup4 lxml rich
+pip install typer[all] curl-cffi beautifulsoup4 lxml rich icalendar
 python -m bgmd.cli fetch "John 3"
 ```
 
@@ -42,12 +43,18 @@ python -m bgmd.cli fetch "John 3"
 
 ### Fetching a Passage
 ```bash
-bgmd fetch "John 3"
+bgmd fetch "John 3:16-21"
 ```
 
-Fetch with a specific translation (e.g., RSVCE):
+### Fetching Daily Readings
+Fetch today's lectionary readings:
 ```bash
-bgmd fetch "John 3" --translation RSVCE
+bgmd lectionary
+```
+
+Fetch readings for a specific date:
+```bash
+bgmd lectionary --date 2026-03-25
 ```
 
 ### Listing Translations
