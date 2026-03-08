@@ -98,5 +98,14 @@ man ./man/bgmd.1
 - **Caching:** All fetched content is stored in `~/.cache/bgmd/`. Requests for the same passage are served instantly from disk.
 - **Randomization:** Every request rotates through modern browser profiles (Chrome, Firefox, Safari, Edge) and includes a random delay to prevent pattern-based blocking.
 
+## Authors
+- **James Montgomery** ([james@onedev.org](mailto:james@onedev.org))
+- **Gemini CLI** (AI collaborator)
+
+## Credits & Inspiration
+`bgmd` is a modern successor to and was heavily inspired by the following projects:
+- **[bg2md](https://github.com/pro-the-theologian/BibleGateway-to-Markdown)** by Jonathan Clark: The original Ruby engine for fetching and converting Bible Gateway HTML.
+- **[bg2obs-catholic](https://github.com/selfire1/BibleGateway-to-Obsidian-Catholic)** by selfire1: A specialized fork for generating Catholic Bible vaults for Obsidian.
+
 ## License
 MIT
