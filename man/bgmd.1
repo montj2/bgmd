@@ -1,4 +1,4 @@
-.TH BGMD 1 "March 2026" "0.1.0" "bgmd Manual"
+.TH BGMD 1 "March 2026" "0.1.3" "bgmd Manual"
 .SH NAME
 bgmd \- Modern Bible Gateway to Markdown tool
 .SH SYNOPSIS
@@ -12,7 +12,10 @@ The tool includes built-in support for the Catholic canon, automatic local cachi
 .SH COMMANDS
 .TP
 .B fetch \fIREFERENCE\fR
-Fetch a specific Bible passage. The \fIREFERENCE\fR can be a full chapter (e.g., "John 3") or a verse range (e.g., "John 3:16-21").
+Fetch a specific Bible passage. The \fIREFERENCE\fR can be a full chapter (e.g., "John 3") or a verse range (e.g., "John 3:16-21"). You can provide multiple translations as a comma-separated list to the \fB--translation\fR flag to generate a comparison view.
+.TP
+.B compare \fIREFERENCE\fR
+Compare multiple translations side-by-side. Use the \fB--translations\fR flag to specify versions.
 .TP
 .B lectionary
 Fetch the daily lectionary readings for a given date (defaults to today) from the Vanderbilt Revised Common Lectionary.
@@ -28,7 +31,10 @@ Update a configuration setting. \fIKEY\fR must be one of: translation, mode, can
 .SH OPTIONS
 .TP
 .B \-t, \-\-translation \fITEXT\fR
-Bible version code (e.g., NABRE, RSVCE). Overrides the configured default.
+Bible version code (e.g., NABRE, RSVCE). For \fBfetch\fR, multiple codes can be comma-separated.
+.TP
+.B \-l, \-\-layout [table|interleaved]
+Layout for comparison view. Defaults to table.
 .TP
 .B \-m, \-\-mode [obsidian|plain]
 Output format. Defaults to obsidian.
@@ -37,7 +43,7 @@ Output format. Defaults to obsidian.
 Force a fresh fetch from Bible Gateway, bypassing the local HTML cache.
 .TP
 .B \-\-no\-randomize
-Disable browser impersonation rotation (uses default Chrome profile).
+Disable browser impersonation rotation.
 .TP
 .B \-\-no\-jitter
 Disable randomized delays between network requests.
@@ -60,6 +66,9 @@ JSON file storing user default settings.
 .TP
 Fetch John chapter 3 using configured defaults:
 .B bgmd fetch "John 3"
+.TP
+Compare John 3:16 in NABRE and RSVCE:
+.B bgmd compare "John 3:16" -t "NABRE,RSVCE"
 .TP
 Fetch a specific verse range in RSVCE:
 .B bgmd fetch "Psalm 23:1-3" --translation RSVCE
