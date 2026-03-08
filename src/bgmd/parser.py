@@ -28,8 +28,6 @@ class Parser:
             if num_match:
                 val = int(num_match.group(1))
                 if 'chapternum' in v_num_tag.get('class', []):
-                    # In BibleGateway, the chapter number (e.g. "5") at the start 
-                    # of the first verse is often tagged as .chapternum
                     if val == self.chapter:
                         return 1
                 return val
@@ -67,7 +65,6 @@ class Parser:
                 if text_span:
                     for a in text_span.find_all("a", class_="backref"):
                         a.decompose()
-                    # Remove the verse reference link at the start
                     first_link = text_span.find("a", recursive=False)
                     if first_link and re.match(r'^\d', first_link.get_text()):
                         first_link.decompose()
@@ -76,32 +73,22 @@ class Parser:
         container = soup.select_one(".passage-text") or soup.select_one(".passage-content") or soup
         
         current_verse_num = 0
-        
         for el in container.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'span', 'b']):
-            # Avoid processing nested elements of already processed containers
             if any(p.name in ['h1', 'h2', 'h3', 'h4', 'h5'] for p in el.parents):
                 continue
             if any(p.name == 'span' and 'text' in p.get('class', []) for p in el.parents):
                 continue
 
-            # Headers
             if el.name in ['h1', 'h2', 'h3', 'h4', 'h5'] or (el.name == 'b' and 'inline-h3' in el.get('class', [])):
                 if 'chapter' in el.get('class', []): continue
                 header_text = el.get_text().strip()
                 if header_text:
-                    # Check if this header contains a verse span (unlikely with above skip but good to check)
-                    v_span = el.select_one("span.text")
-                    if v_span:
-                        v_num = self._get_verse_num(v_span)
-                        if v_num: current_verse_num = v_num
-                    
                     doc.section_headers.append(SectionHeader(
                         before_verse=current_verse_num + 1,
                         text=header_text
                     ))
                 continue
 
-            # Verse spans
             if el.name == 'span' and 'text' in el.get('class', []):
                 v_num = self._get_verse_num(el)
                 
@@ -124,7 +111,7 @@ class Parser:
                                 continue
                             elif 'inline-h3' in classes:
                                 h_text = node.get_text().strip()
-                                if h_text and not any(sh.text == h_text for sh in doc.section_headers):
+                                if h_text and not any(sh.text == h_text for h in doc.section_headers):
                                     doc.section_headers.append(SectionHeader(
                                         before_verse=current_verse_num,
                                         text=h_text
@@ -134,10 +121,8 @@ class Parser:
                         else:
                             doc.verses[-1].text += str(node)
 
-        # Final cleanup
         for v in doc.verses:
             v.text = re.sub(rf'^Chapter\s+{self.chapter}\s*', '', v.text, flags=re.IGNORECASE)
-            # Some translations leak the chapter number into verse 1 text
             if v.number == 1:
                 v.text = re.sub(rf'^{self.chapter}\s*', '', v.text)
             v.text = re.sub(r'\s+', ' ', v.text).strip()
