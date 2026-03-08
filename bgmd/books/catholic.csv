@@ -1,0 +1,74 @@
+slug,display_name,chapters,bg_name,testament
+genesis,Genesis,50,Genesis,OT
+exodus,Exodus,40,Exodus,OT
+leviticus,Leviticus,27,Leviticus,OT
+numbers,Numbers,36,Numbers,OT
+deuteronomy,Deuteronomy,34,Deuteronomy,OT
+joshua,Joshua,24,Joshua,OT
+judges,Judges,21,Judges,OT
+ruth,Ruth,4,Ruth,OT
+1samuel,1 Samuel,31,1+Samuel,OT
+2samuel,2 Samuel,24,2+Samuel,OT
+1kings,1 Kings,22,1+Kings,OT
+2kings,2 Kings,25,2+Kings,OT
+1chronicles,1 Chronicles,29,1+Chronicles,OT
+2chronicles,2 Chronicles,36,2+Chronicles,OT
+ezra,Ezra,10,Ezra,OT
+nehemiah,Nehemiah,13,Nehemiah,OT
+tobit,Tobit,14,Tobit,OT
+judith,Judith,16,Judith,OT
+esther,Esther,10,Esther,OT
+1maccabees,1 Maccabees,16,1+Maccabees,OT
+2maccabees,2 Maccabees,15,2+Maccabees,OT
+job,Job,42,Job,OT
+psalms,Psalms,150,Psalm,OT
+proverbs,Proverbs,31,Proverbs,OT
+ecclesiastes,Ecclesiastes,12,Ecclesiastes,OT
+songofsongs,Song of Songs,8,Song+of+Solomon,OT
+wisdom,Wisdom,19,Wisdom,OT
+sirach,Sirach,51,Sirach,OT
+isaiah,Isaiah,66,Isaiah,OT
+jeremiah,Jeremiah,52,Jeremiah,OT
+lamentations,Lamentations,5,Lamentations,OT
+baruch,Baruch,6,Baruch,OT
+ezekiel,Ezekiel,48,Ezekiel,OT
+daniel,Daniel,14,Daniel,OT
+hosea,Hosea,14,Hosea,OT
+joel,Joel,4,Joel,OT
+amos,Amos,9,Amos,OT
+obadiah,Obadiah,1,Obadiah,OT
+jonah,Jonah,4,Jonah,OT
+micah,Micah,7,Micah,OT
+nahum,Nahum,3,Nahum,OT
+habakkuk,Habakkuk,3,Habakkuk,OT
+zephaniah,Zephaniah,3,Zephaniah,OT
+haggai,Haggai,2,Haggai,OT
+zechariah,Zechariah,14,Zechariah,OT
+malachi,Malachi,4,Malachi,OT
+matthew,Matthew,28,Matthew,NT
+mark,Mark,16,Mark,NT
+luke,Luke,24,Luke,NT
+john,John,21,John,NT
+acts,Acts,28,Acts,NT
+romans,Romans,16,Romans,NT
+1corinthians,1 Corinthians,16,1+Corinthians,NT
+2corinthians,2 Corinthians,13,2+Corinthians,NT
+galatians,Galatians,6,Galatians,NT
+ephesians,Ephesians,6,Ephesians,NT
+philippians,Philippians,4,Philippians,NT
+colossians,Colossians,4,Colossians,NT
+1thessalonians,1 Thessalonians,5,1+Thessalonians,NT
+2thessalonians,2 Thessalonians,3,2+Thessalonians,NT
+1timothy,1 Timothy,6,1+Timothy,NT
+2timothy,2 Timothy,4,2+Timothy,NT
+titus,Titus,3,Titus,NT
+philemon,Philemon,1,Philemon,NT
+hebrews,Hebrews,13,Hebrews,NT
+james,James,5,James,NT
+1peter,1 Peter,5,1+Peter,NT
+2peter,2 Peter,3,2+Peter,NT
+1john,1 John,5,1+John,NT
+2john,2 John,1,2+John,NT
+3john,3 John,1,3+John,NT
+jude,Jude,1,Jude,NT
+revelation,Revelation,22,Revelation,NT
