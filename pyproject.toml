@@ -38,9 +38,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/bgmd"
-Repository = "https://github.com/yourusername/bgmd"
-Issues = "https://github.com/yourusername/bgmd/issues"
+Homepage = "https://github.com/montj2/bgmd"
+Repository = "https://github.com/montj2/bgmd"
+Issues = "https://github.com/montj2/bgmd/issues"
 
 [project.scripts]
 bgmd = "bgmd.cli:app"
