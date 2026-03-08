@@ -1,7 +1,8 @@
 import csv
-import pkgutil
+import importlib.resources
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+from pathlib import Path
 
 @dataclass
 class Book:
@@ -20,14 +21,12 @@ class Canon:
         self._load_canon()
 
     def _load_canon(self):
-        # In a real package, we'd use importlib.resources or similar
-        # For now, we'll assume the file is in the same directory structure
         try:
-            # Try to load from the package directory
-            data = pkgutil.get_data("bgmd.books", f"{self.name}.csv")
-            if data:
-                decoded = data.decode('utf-8').splitlines()
-                reader = csv.DictReader(decoded)
+            # Use modern importlib.resources to load the data file
+            # This works correctly when installed as a package
+            traversable = importlib.resources.files("bgmd.books").joinpath(f"{self.name}.csv")
+            with traversable.open('r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
                 for row in reader:
                     book = Book(
                         slug=row['slug'],
@@ -39,9 +38,11 @@ class Canon:
                     self.books.append(book)
                     self._slug_map[book.slug] = book
                     self._name_map[book.display_name.lower()] = book
-            else:
-                # Fallback for local development if pkgutil fails
-                with open(f"bgmd/books/{self.name}.csv", 'r') as f:
+        except (FileNotFoundError, ModuleNotFoundError, ImportError):
+            # Fallback for local development or if resources fail
+            local_path = Path(__file__).parent / "books" / f"{self.name}.csv"
+            if local_path.exists():
+                with open(local_path, 'r', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
                         book = Book(
@@ -54,8 +55,8 @@ class Canon:
                         self.books.append(book)
                         self._slug_map[book.slug] = book
                         self._name_map[book.display_name.lower()] = book
-        except FileNotFoundError:
-            raise ValueError(f"Canon '{self.name}' not found.")
+            else:
+                raise ValueError(f"Canon '{self.name}' not found.")
 
     def get_book(self, identifier: str) -> Optional[Book]:
         identifier = identifier.lower().replace(" ", "")

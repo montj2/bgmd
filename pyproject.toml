@@ -1,6 +1,6 @@
 [project]
 name = "bgmd"
-version = "0.1.0"
+version = "0.1.1"
 description = "Modern Bible Gateway to Markdown tool"
 requires-python = ">=3.11"
 authors = [
@@ -28,13 +28,12 @@ dev = [
 bgmd = "bgmd.cli:app"
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["bgmd*"]
-
-[tool.setuptools.package-data]
-"*" = ["*.csv"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
