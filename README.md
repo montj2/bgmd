@@ -62,6 +62,11 @@ Fetch today's lectionary readings:
 bgmd lectionary
 ```
 
+Compare today's readings in multiple translations:
+```bash
+bgmd lectionary --translation "NABRE,RSVCE"
+```
+
 Fetch readings for a specific date:
 ```bash
 bgmd lectionary --date 2026-03-25

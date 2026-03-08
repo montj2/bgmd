@@ -87,9 +87,10 @@ async def _fetch_and_format(
 @app.command()
 def fetch(
     reference: str,
-    translation: str = typer.Option(config.settings.translation, "--translation", "-t", help="Translation code"),
+    translation: str = typer.Option(config.settings.translation, "--translation", "-t", help="Translation code(s), comma-separated for comparison"),
     canon_name: str = typer.Option(config.settings.canon, "--canon", help="Canon name"),
-    mode: str = typer.Option(config.settings.mode, "--mode", "-m", help="Output mode"),
+    mode: str = typer.Option(config.settings.mode, "--mode", "-m", help="Output mode (obsidian, plain)"),
+    layout: str = typer.Option("table", "--layout", "-l", help="Comparison layout (table, interleaved)"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Skip local cache"),
     no_randomize: bool = typer.Option(config.settings.no_randomize, "--no-randomize", help="Disable randomization"),
     no_jitter: bool = typer.Option(config.settings.no_jitter, "--no-jitter", help="Disable delay"),
@@ -97,7 +98,6 @@ def fetch(
 ):
     """Fetch a Bible passage."""
     async def run():
-        # Support multiple translations in fetch if comma separated
         if ',' in translation:
             translations = [t.strip() for t in translation.split(',')]
             docs = []
@@ -106,8 +106,8 @@ def fetch(
                 if doc: docs.append(doc)
             
             if docs:
-                comp = ComparisonDoc(reference=reference, translations=translations, docs=docs)
-                output = Formatter(mode).format_comparison(comp)
+                comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
+                output = Formatter(mode).format_comparison(comp, layout=layout)
                 print(output)
         else:
             output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
@@ -141,8 +141,9 @@ def compare(
 @app.command()
 def lectionary(
     date: str = typer.Option(None, "--date", help="Target date (YYYY-MM-DD), defaults to today"),
-    translation: str = typer.Option(config.settings.translation, "--translation", "-t"),
+    translation: str = typer.Option(config.settings.translation, "--translation", "-t", help="Translation code(s), comma-separated for comparison"),
     mode: str = typer.Option(config.settings.mode, "--mode", "-m"),
+    layout: str = typer.Option("table", "--layout", "-l", help="Comparison layout (table, interleaved)"),
     no_cache: bool = typer.Option(False, "--no-cache"),
 ):
     """Fetch daily lectionary readings for a given date."""
@@ -163,12 +164,25 @@ def lectionary(
             print(f"  - {ref}")
         print("-" * 20)
 
+        is_comparison = ',' in translation
+        trans_list = [t.strip() for t in translation.split(',')] if is_comparison else [translation]
+
         for ref in refs:
             print(f"\n[bold blue]>>> {ref}[/bold blue]")
-            output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
-            if output:
-                print(output)
-                print("\n" + "="*40 + "\n")
+            if is_comparison:
+                docs = []
+                for t in trans_list:
+                    doc = await _fetch_doc(ref, t, config.settings.canon, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
+                    if doc: docs.append(doc)
+                if docs:
+                    comp = ComparisonDoc(reference=ref, translations=[d.translation for d in docs], docs=docs)
+                    print(Formatter(mode).format_comparison(comp, layout=layout))
+            else:
+                output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
+                if output:
+                    print(output)
+            
+            print("\n" + "="*40 + "\n")
 
     asyncio.run(run())
 
