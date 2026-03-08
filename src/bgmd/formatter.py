@@ -1,5 +1,6 @@
 from bgmd.models import PassageDoc, ComparisonDoc
 from typing import List, Dict
+import re
 
 class Formatter:
     def __init__(self, mode: str = "obsidian"):
@@ -30,15 +31,19 @@ class Formatter:
             all_nums.update(v.number for v in doc.verses)
         
         for v_num in sorted(all_nums):
-            row = f"| {v_num} | "
-            verse_texts = []
+            row_parts = [f" {v_num} "]
             for doc in comp.docs:
                 v = next((v for v in doc.verses if v.number == v_num), None)
                 text = v.text if v else "_"
-                # Cleanup text for table
-                text = text.replace("|", "\\|").replace("\n", " ")
-                verse_texts.append(text)
-            row += " | ".join(verse_texts) + " |"
+                
+                # NORMALIZE EVERYTHING
+                # 1. Replace all whitespace types with a single space
+                text = " ".join(text.split())
+                # 2. Escape pipes
+                text = text.replace("|", "\\|")
+                row_parts.append(f" {text} ")
+            
+            row = "|" + "|".join(row_parts) + "|"
             lines.append(row)
             
         return "\n".join(lines)

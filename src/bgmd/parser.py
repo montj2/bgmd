@@ -20,7 +20,6 @@ class Parser:
         self.end_verse = end_verse
 
     def _get_verse_num(self, el: Tag) -> Optional[int]:
-        # 1. Check for .versenum or .chapternum child
         v_num_tag = el.select_one(".versenum, .chapternum")
         if v_num_tag:
             v_text = v_num_tag.get_text().strip()
@@ -32,7 +31,6 @@ class Parser:
                         return 1
                 return val
         
-        # 2. Check classes for Book-Chapter-Verse
         for cls in el.get('class', []):
             match = re.search(rf"-(\d+)$", cls)
             if match:
@@ -100,6 +98,8 @@ class Parser:
                         current_verse_num = v_num
                         doc.verses.append(Verse(number=v_num, text=""))
                     
+                    # NORMALIZE TEXT DURING EXTRACTION
+                    clean_text = ""
                     for node in el.children:
                         if isinstance(node, Tag):
                             classes = node.get('class', [])
@@ -111,21 +111,26 @@ class Parser:
                                 continue
                             elif 'inline-h3' in classes:
                                 h_text = node.get_text().strip()
-                                if h_text and not any(sh.text == h_text for h in doc.section_headers):
+                                if h_text and not any(sh.text == h_text for sh in doc.section_headers):
                                     doc.section_headers.append(SectionHeader(
                                         before_verse=current_verse_num,
                                         text=h_text
                                     ))
                             else:
-                                doc.verses[-1].text += node.get_text()
+                                clean_text += node.get_text()
                         else:
-                            doc.verses[-1].text += str(node)
+                            clean_text += str(node)
+                    
+                    # Normalize whitespace within the fragment
+                    doc.verses[-1].text += " " + clean_text
 
+        # Final cleanup of full verse text
         for v in doc.verses:
             v.text = re.sub(rf'^Chapter\s+{self.chapter}\s*', '', v.text, flags=re.IGNORECASE)
             if v.number == 1:
                 v.text = re.sub(rf'^{self.chapter}\s*', '', v.text)
-            v.text = re.sub(r'\s+', ' ', v.text).strip()
+            # STRIP ALL NEWLINES AND TABS
+            v.text = " ".join(v.text.split()).strip()
             v.text = re.sub(rf'^{v.number}\s*', '', v.text)
             v.text = v.text.replace('\xa0', ' ').strip()
 

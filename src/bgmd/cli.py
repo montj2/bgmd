@@ -11,12 +11,14 @@ from bgmd.translations import COMMON_TRANSLATIONS, get_translation
 from bgmd.lectionary import LectionaryProvider
 from bgmd.config import config
 from bgmd.models import ComparisonDoc, PassageDoc
-from rich import print
+from rich.console import Console
 from rich.table import Table
 from pathlib import Path
 import os
+import sys
 
 app = typer.Typer()
+console = Console(highlight=False, soft_wrap=True)
 
 def parse_reference(ref: str):
     pattern = r'^(.+?)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$'
@@ -43,13 +45,13 @@ async def _fetch_doc(
     canon = Canon(canon_name)
     parsed = parse_reference(reference)
     if not parsed:
-        print(f"[bold red]Error:[/bold red] Invalid reference format '{reference}'.")
+        console.print(f"[bold red]Error:[/bold red] Invalid reference format '{reference}'.")
         return None
         
     book_name, chapter, start_v, end_v = parsed
     book = canon.get_book(book_name)
     if not book:
-        print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
+        console.print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
         return None
 
     cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
@@ -108,10 +110,10 @@ def fetch(
             if docs:
                 comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
                 output = Formatter(mode).format_comparison(comp, layout=layout)
-                print(output)
+                console.print(output)
         else:
             output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
-            if output: print(output)
+            if output: console.print(output)
 
     asyncio.run(run())
 
@@ -134,7 +136,7 @@ def compare(
         if docs:
             comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
             output = Formatter().format_comparison(comp, layout=layout)
-            print(output)
+            console.print(output)
 
     asyncio.run(run())
 
@@ -152,23 +154,23 @@ def lectionary(
         cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
         provider = LectionaryProvider(cache_dir=cache_dir)
         
-        print(f"Loading lectionary for [bold cyan]{target_date}[/bold cyan]...")
+        console.print(f"Loading lectionary for [bold cyan]{target_date}[/bold cyan]...")
         summary, refs = await provider.get_readings(target_date)
         
         if not refs:
-            print(f"[yellow]No readings found for {target_date} ({summary}).[/yellow]")
+            console.print(f"[yellow]No readings found for {target_date} ({summary}).[/yellow]")
             return
 
-        print(f"Readings for [bold green]{summary}[/bold green]:")
+        console.print(f"Readings for [bold green]{summary}[/bold green]:")
         for ref in refs:
-            print(f"  - {ref}")
-        print("-" * 20)
+            console.print(f"  - {ref}")
+        console.print("-" * 20)
 
         is_comparison = ',' in translation
         trans_list = [t.strip() for t in translation.split(',')] if is_comparison else [translation]
 
         for ref in refs:
-            print(f"\n[bold blue]>>> {ref}[/bold blue]")
+            console.print(f"\n[bold blue]>>> {ref}[/bold blue]")
             if is_comparison:
                 docs = []
                 for t in trans_list:
@@ -176,13 +178,13 @@ def lectionary(
                     if doc: docs.append(doc)
                 if docs:
                     comp = ComparisonDoc(reference=ref, translations=[d.translation for d in docs], docs=docs)
-                    print(Formatter(mode).format_comparison(comp, layout=layout))
+                    console.print(Formatter(mode).format_comparison(comp, layout=layout))
             else:
                 output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
                 if output:
-                    print(output)
+                    console.print(output)
             
-            print("\n" + "="*40 + "\n")
+            console.print("\n" + "="*40 + "\n")
 
     asyncio.run(run())
 
@@ -194,8 +196,8 @@ def config_show():
     table.add_column("Value", style="green")
     for k, v in config.get_all().items():
         table.add_row(k, str(v))
-    print(table)
-    print(f"\nConfig file: [italic]{config.config_path}[/italic]")
+    console.print(table)
+    console.print(f"\nConfig file: [italic]{config.config_path}[/italic]")
 
 @app.command()
 def config_set(key: str, value: str):
@@ -209,9 +211,9 @@ def config_set(key: str, value: str):
             typed_value = value
             
         config.set(key, typed_value)
-        print(f"[bold green]Updated {key} to {value}[/bold green]")
+        console.print(f"[bold green]Updated {key} to {value}[/bold green]")
     except KeyError as e:
-        print(f"[bold red]{e}[/bold red]")
+        console.print(f"[bold red]{e}[/bold red]")
 
 @app.command(name="translations")
 def list_translations():
@@ -221,7 +223,7 @@ def list_translations():
     table.add_column("Name", style="green")
     for t in COMMON_TRANSLATIONS:
         table.add_row(t.code, t.full_name)
-    print(table)
+    console.print(table)
 
 if __name__ == "__main__":
     app()
