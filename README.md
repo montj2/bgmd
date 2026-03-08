@@ -71,6 +71,12 @@ bgmd translations
 - `-m, --mode`: Output format (`obsidian` or `plain`).
 - `--debug`: Enable verbose logging.
 
+## Documentation
+`bgmd` includes a detailed man page. To view it:
+```bash
+man ./man/bgmd.1
+```
+
 ## Caching & Randomization
 `bgmd` is designed to be a "good citizen" when interacting with Bible Gateway:
 - **Caching:** All fetched content is stored in `~/.cache/bgmd/`. Requests for the same passage are served instantly from disk.

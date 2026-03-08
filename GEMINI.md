@@ -38,6 +38,10 @@ pip install typer[all] curl-cffi beautifulsoup4 lxml rich
   ```bash
   python -m bgmd.cli translations
   ```
+- **View man page:**
+  ```bash
+  man ./man/bgmd.1
+  ```
 - **Bypass cache:**
   ```bash
   python -m bgmd.cli fetch "John 3" --no-cache
