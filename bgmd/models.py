@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 @dataclass
 class Verse:
@@ -27,6 +28,8 @@ class PassageDoc:
     book: str
     chapter: int
     translation: str
+    start_verse: Optional[int] = None
+    end_verse: Optional[int] = None
     verses: list[Verse] = field(default_factory=list)
     section_headers: list[SectionHeader] = field(default_factory=list)
     footnotes: list[Footnote] = field(default_factory=list)
@@ -34,3 +37,12 @@ class PassageDoc:
     copyright: str = ""
     prev: str | None = None
     next: str | None = None
+
+    @property
+    def reference(self) -> str:
+        ref = f"{self.book} {self.chapter}"
+        if self.start_verse:
+            ref += f":{self.start_verse}"
+            if self.end_verse and self.end_verse != self.start_verse:
+                ref += f"-{self.end_verse}"
+        return ref

@@ -1,5 +1,6 @@
 import typer
 import asyncio
+import re
 from typing import List, Optional
 from bgmd.canon import Canon
 from bgmd.fetcher import Fetcher
@@ -11,6 +12,27 @@ from rich.table import Table
 import os
 
 app = typer.Typer()
+
+def parse_reference(ref: str):
+    """
+    Parses a reference string like "John 3", "John 3:16", or "John 3:16-21".
+    Returns (book_name, chapter, start_verse, end_verse)
+    """
+    # Regex to handle various formats
+    # 1. Book (can have spaces/numbers)
+    # 2. Chapter
+    # 3. Verse range (optional)
+    pattern = r'^(.+?)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$'
+    match = re.match(pattern, ref.strip())
+    if not match:
+        return None
+    
+    book = match.group(1).strip()
+    chapter = int(match.group(2))
+    start_v = int(match.group(3)) if match.group(3) else None
+    end_v = int(match.group(4)) if match.group(4) else start_v
+    
+    return book, chapter, start_v, end_v
 
 @app.command()
 def fetch(
@@ -27,26 +49,20 @@ def fetch(
     """
     Fetch a Bible passage and output as Markdown.
     
-    Example: bgmd fetch "John 3"
+    Example: bgmd fetch "John 3:16-21"
     """
     async def run_fetch():
         canon = Canon(canon_name)
         
-        parts = reference.rsplit(' ', 1)
-        if len(parts) < 2:
-            print(f"[bold red]Error:[/bold red] Invalid reference '{reference}'. Expected 'Book Chapter'.")
+        parsed = parse_reference(reference)
+        if not parsed:
+            print(f"[bold red]Error:[/bold red] Invalid reference format '{reference}'. Expected 'Book Chapter' or 'Book Chapter:Verse-Range'.")
             return
             
-        book_name, chapter_str = parts
+        book_name, chapter, start_v, end_v = parsed
         book = canon.get_book(book_name)
         if not book:
             print(f"[bold red]Error:[/bold red] Book '{book_name}' not found in canon '{canon_name}'.")
-            return
-            
-        try:
-            chapter = int(chapter_str)
-        except ValueError:
-            print(f"[bold red]Error:[/bold red] Invalid chapter '{chapter_str}'.")
             return
 
         if use_fixture:
@@ -58,22 +74,29 @@ def fetch(
             if debug: print(f"Using fixture [bold blue]{use_fixture}[/bold blue]...")
         else:
             fetcher = Fetcher(translation)
-            
-            cache_path = fetcher._get_cache_path(book.bg_name, chapter)
+            # Check cache location
+            cache_path = fetcher._get_cache_path(book.bg_name, chapter, start_v, end_v)
             if not no_cache and cache_path.exists():
-                if debug: print(f"Loading [bold blue]{book.display_name} {chapter}[/bold blue] from cache...")
+                if debug: print(f"Loading from cache: {cache_path}")
             else:
-                print(f"Fetching [bold green]{book.display_name} {chapter}[/bold green] ({translation})...")
+                # Also check full chapter cache
+                full_path = fetcher._get_cache_path(book.bg_name, chapter)
+                if not no_cache and full_path.exists():
+                    if debug: print(f"Loading full chapter from cache: {full_path}")
+                else:
+                    print(f"Fetching [bold green]{book.display_name} {chapter}{f':{start_v}' if start_v else ''}{f'-{end_v}' if end_v and end_v != start_v else ''}[/bold green] ({translation})...")
             
-            html = await fetcher.fetch_chapter(
+            html = await fetcher.fetch_reference(
                 book.bg_name, 
                 chapter, 
+                start_v, 
+                end_v,
                 use_cache=not no_cache,
                 randomize=not no_randomize,
                 jitter=not no_jitter
             )
         
-        parser = Parser(book.display_name, chapter, translation)
+        parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v)
         doc = parser.parse(html)
         
         if debug:

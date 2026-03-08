@@ -16,6 +16,11 @@ class Formatter:
         lines.append("---")
         lines.append(f"book: {doc.book}")
         lines.append(f"chapter: {doc.chapter}")
+        if doc.start_verse:
+            lines.append(f"start_verse: {doc.start_verse}")
+            if doc.end_verse:
+                lines.append(f"end_verse: {doc.end_verse}")
+        lines.append(f"reference: \"{doc.reference}\"")
         lines.append(f"translation: {doc.translation}")
         if doc.prev or doc.next:
             if doc.prev:
@@ -26,7 +31,7 @@ class Formatter:
         lines.append("")
         
         # Title
-        lines.append(f"# {doc.book} {doc.chapter}")
+        lines.append(f"# {doc.reference}")
         lines.append("")
         
         # Verses and Headers
@@ -37,7 +42,7 @@ class Formatter:
         if not all_verse_nums:
             return "\n".join(lines)
         
-        for v_num in range(1, max(all_verse_nums) + 1):
+        for v_num in range(min(all_verse_nums), max(all_verse_nums) + 1):
             if v_num in header_map:
                 lines.append(f"## {header_map[v_num].text}")
                 lines.append("")
@@ -48,6 +53,7 @@ class Formatter:
                 
                 # Add inline footnotes if applicable
                 for fn_ref in verse.footnote_refs:
+                    # Clean up refs like "a" or "1"
                     text += f"^[{fn_ref}]"
                 
                 lines.append(f"###### {v_num}")
@@ -79,8 +85,7 @@ class Formatter:
         return "\n".join(lines)
 
     def _format_plain(self, doc: PassageDoc) -> str:
-        # Simplified plain markdown version
-        lines = [f"# {doc.book} {doc.chapter}", ""]
+        lines = [f"# {doc.reference}", ""]
         for v in doc.verses:
             lines.append(f"**{v.number}** {v.text}")
             lines.append("")
