@@ -47,7 +47,6 @@ async def _fetch_and_format(
         return None
         
     book_name, chapter, start_v, end_v = parsed
-    print(f"DEBUG: Parsing '{reference}' -> book='{book_name}' chapter={chapter}")
     book = canon.get_book(book_name)
     if not book:
         print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
