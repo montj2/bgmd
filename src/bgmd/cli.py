@@ -110,10 +110,10 @@ def fetch(
             if docs:
                 comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
                 output = Formatter(mode).format_comparison(comp, layout=layout)
-                console.print(output)
+                sys.stdout.write(output + "\n")
         else:
             output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
-            if output: console.print(output)
+            if output: sys.stdout.write(output + "\n")
 
     asyncio.run(run())
 
@@ -136,7 +136,7 @@ def compare(
         if docs:
             comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
             output = Formatter().format_comparison(comp, layout=layout)
-            console.print(output)
+            sys.stdout.write(output + "\n")
 
     asyncio.run(run())
 
@@ -178,11 +178,11 @@ def lectionary(
                     if doc: docs.append(doc)
                 if docs:
                     comp = ComparisonDoc(reference=ref, translations=[d.translation for d in docs], docs=docs)
-                    console.print(Formatter(mode).format_comparison(comp, layout=layout))
+                    sys.stdout.write(Formatter(mode).format_comparison(comp, layout=layout) + "\n")
             else:
                 output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
                 if output:
-                    console.print(output)
+                    sys.stdout.write(output + "\n")
             
             console.print("\n" + "="*40 + "\n")
 

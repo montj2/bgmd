@@ -1,6 +1,6 @@
 [project]
 name = "bgmd"
-version = "0.1.4"
+version = "0.1.5"
 description = "Modern Bible Gateway to Markdown tool"
 requires-python = ">=3.11"
 authors = [
