@@ -27,6 +27,15 @@ dev = [
 [project.scripts]
 bgmd = "bgmd.cli:app"
 
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["bgmd*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.csv"]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

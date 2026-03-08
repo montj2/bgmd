@@ -24,7 +24,7 @@ class Canon:
         # For now, we'll assume the file is in the same directory structure
         try:
             # Try to load from the package directory
-            data = pkgutil.get_data(__name__, f"books/{self.name}.csv")
+            data = pkgutil.get_data("bgmd.books", f"{self.name}.csv")
             if data:
                 decoded = data.decode('utf-8').splitlines()
                 reader = csv.DictReader(decoded)
