@@ -9,8 +9,10 @@ from bgmd.parser import Parser
 from bgmd.formatter import Formatter
 from bgmd.translations import COMMON_TRANSLATIONS, get_translation
 from bgmd.lectionary import LectionaryProvider
+from bgmd.config import config
 from rich import print
 from rich.table import Table
+from pathlib import Path
 import os
 
 app = typer.Typer()
@@ -50,7 +52,10 @@ async def _fetch_and_format(
         print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
         return None
 
-    fetcher = Fetcher(translation)
+    # Respect custom cache dir if set
+    cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
+    fetcher = Fetcher(translation, cache_dir=cache_dir)
+    
     html = await fetcher.fetch_reference(
         book.bg_name, 
         chapter, 
@@ -70,26 +75,17 @@ async def _fetch_and_format(
 @app.command()
 def fetch(
     reference: str,
-    translation: str = typer.Option("NABRE", "--translation", "-t", help="Translation code"),
-    canon_name: str = typer.Option("catholic", "--canon", help="Canon name"),
-    mode: str = typer.Option("obsidian", "--mode", "-m", help="Output mode"),
+    translation: str = typer.Option(config.settings.translation, "--translation", "-t", help="Translation code"),
+    canon_name: str = typer.Option(config.settings.canon, "--canon", help="Canon name"),
+    mode: str = typer.Option(config.settings.mode, "--mode", "-m", help="Output mode"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Skip local cache"),
-    no_randomize: bool = typer.Option(False, "--no-randomize", help="Disable randomization"),
-    no_jitter: bool = typer.Option(False, "--no-jitter", help="Disable delay"),
+    no_randomize: bool = typer.Option(config.settings.no_randomize, "--no-randomize", help="Disable randomization"),
+    no_jitter: bool = typer.Option(config.settings.no_jitter, "--no-jitter", help="Disable delay"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug output"),
-    use_fixture: Optional[str] = typer.Option(None, "--fixture", help="Use local file"),
 ):
     """Fetch a Bible passage."""
     async def run():
-        if use_fixture:
-            with open(use_fixture, 'r') as f: html = f.read()
-            parsed = parse_reference(reference)
-            if not parsed: return
-            parser = Parser(parsed[0], parsed[1], translation, start_verse=parsed[2], end_verse=parsed[3])
-            output = Formatter(mode).format(parser.parse(html))
-        else:
-            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
-        
+        output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug)
         if output: print(output)
 
     asyncio.run(run())
@@ -97,14 +93,15 @@ def fetch(
 @app.command()
 def lectionary(
     date: str = typer.Option(None, "--date", help="Target date (YYYY-MM-DD), defaults to today"),
-    translation: str = typer.Option("NABRE", "--translation", "-t"),
-    mode: str = typer.Option("obsidian", "--mode", "-m"),
+    translation: str = typer.Option(config.settings.translation, "--translation", "-t"),
+    mode: str = typer.Option(config.settings.mode, "--mode", "-m"),
     no_cache: bool = typer.Option(False, "--no-cache"),
 ):
     """Fetch daily lectionary readings for a given date."""
     async def run():
         target_date = date_obj.fromisoformat(date) if date else date_obj.today()
-        provider = LectionaryProvider()
+        cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
+        provider = LectionaryProvider(cache_dir=cache_dir)
         
         print(f"Loading lectionary for [bold cyan]{target_date}[/bold cyan]...")
         summary, refs = await provider.get_readings(target_date)
@@ -120,12 +117,40 @@ def lectionary(
 
         for ref in refs:
             print(f"\n[bold blue]>>> {ref}[/bold blue]")
-            output = await _fetch_and_format(ref, translation, "catholic", mode, no_cache, False, False, False)
+            output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False)
             if output:
                 print(output)
                 print("\n" + "="*40 + "\n")
 
     asyncio.run(run())
+
+@app.command()
+def config_show():
+    """Show current settings."""
+    table = Table(title="bgmd Settings")
+    table.add_column("Key", style="cyan")
+    table.add_column("Value", style="green")
+    for k, v in config.get_all().items():
+        table.add_row(k, str(v))
+    print(table)
+    print(f"\nConfig file: [italic]{config.config_path}[/italic]")
+
+@app.command()
+def config_set(key: str, value: str):
+    """Set a configuration value."""
+    try:
+        # Handle boolean strings
+        if value.lower() in ["true", "1", "yes"]:
+            typed_value = True
+        elif value.lower() in ["false", "0", "no"]:
+            typed_value = False
+        else:
+            typed_value = value
+            
+        config.set(key, typed_value)
+        print(f"[bold green]Updated {key} to {value}[/bold green]")
+    except KeyError as e:
+        print(f"[bold red]{e}[/bold red]")
 
 @app.command(name="translations")
 def list_translations():
