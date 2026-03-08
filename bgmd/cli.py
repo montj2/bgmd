@@ -19,6 +19,8 @@ def fetch(
     canon_name: str = typer.Option("catholic", "--canon", help="Canon name"),
     mode: str = typer.Option("obsidian", "--mode", "-m", help="Output mode (obsidian, plain)"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Skip local cache and fetch from network"),
+    no_randomize: bool = typer.Option(False, "--no-randomize", help="Disable browser impersonation randomization"),
+    no_jitter: bool = typer.Option(False, "--no-jitter", help="Disable randomized request delays"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug output"),
     use_fixture: Optional[str] = typer.Option(None, "--fixture", help="Use a local HTML file instead of fetching"),
 ):
@@ -57,14 +59,19 @@ def fetch(
         else:
             fetcher = Fetcher(translation)
             
-            # Check cache before fetching (implicitly handled by fetch_chapter but we can log it)
             cache_path = fetcher._get_cache_path(book.bg_name, chapter)
             if not no_cache and cache_path.exists():
                 if debug: print(f"Loading [bold blue]{book.display_name} {chapter}[/bold blue] from cache...")
             else:
                 print(f"Fetching [bold green]{book.display_name} {chapter}[/bold green] ({translation})...")
             
-            html = await fetcher.fetch_chapter(book.bg_name, chapter, use_cache=not no_cache)
+            html = await fetcher.fetch_chapter(
+                book.bg_name, 
+                chapter, 
+                use_cache=not no_cache,
+                randomize=not no_randomize,
+                jitter=not no_jitter
+            )
         
         parser = Parser(book.display_name, chapter, translation)
         doc = parser.parse(html)
