@@ -4,6 +4,7 @@ import os
 import random
 from pathlib import Path
 from typing import Optional
+import re
 
 class Fetcher:
     # Stable impersonation profiles for randomization
@@ -24,14 +25,19 @@ class Fetcher:
             
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def _get_cache_path(self, book_bg_name: str, chapter: int, start_verse: Optional[int] = None, end_verse: Optional[int] = None) -> Path:
+    def _get_cache_path(self, book_bg_name: str, chapter: int, start_verse: Optional[int] = None, end_verse: Optional[int] = None, raw_rest: Optional[str] = None) -> Path:
         # Sanitize name for filename
         safe_name = book_bg_name.replace("+", " ").replace(" ", "_").lower()
-        filename = f"{safe_name}_{chapter}"
-        if start_verse:
-            filename += f"_{start_verse}"
-            if end_verse and end_verse != start_verse:
-                filename += f"-{end_verse}"
+        if raw_rest:
+            # Hash or sanitize raw_rest for filename
+            clean_rest = re.sub(r'\W+', '_', raw_rest).lower()
+            filename = f"{safe_name}_{clean_rest}"
+        else:
+            filename = f"{safe_name}_{chapter}"
+            if start_verse:
+                filename += f"_{start_verse}"
+                if end_verse and end_verse != start_verse:
+                    filename += f"-{end_verse}"
         filename += ".html"
         return self.cache_dir / self.translation.upper() / filename
 
@@ -41,30 +47,35 @@ class Fetcher:
         chapter: int, 
         start_verse: Optional[int] = None,
         end_verse: Optional[int] = None,
+        raw_rest: Optional[str] = None,
         use_cache: bool = True,
         randomize: bool = True,
         jitter: bool = True
     ) -> str:
-        cache_path = self._get_cache_path(book_bg_name, chapter, start_verse, end_verse)
+        cache_path = self._get_cache_path(book_bg_name, chapter, start_verse, end_verse, raw_rest)
         
         if use_cache and cache_path.exists():
             with open(cache_path, 'r', encoding='utf-8') as f:
                 return f.read()
         
-        full_chapter_path = self._get_cache_path(book_bg_name, chapter)
-        if use_cache and full_chapter_path.exists():
-            with open(full_chapter_path, 'r', encoding='utf-8') as f:
-                return f.read()
+        # If not complex, check for full chapter
+        if not raw_rest:
+            full_chapter_path = self._get_cache_path(book_bg_name, chapter)
+            if use_cache and full_chapter_path.exists():
+                with open(full_chapter_path, 'r', encoding='utf-8') as f:
+                    return f.read()
 
         if jitter:
             await asyncio.sleep(random.uniform(0.5, 1.5))
 
-        # IMPORTANT: Use space instead of + to ensure BibleGateway serves the SSR version
-        search_ref = f"{book_bg_name.replace('+', ' ')} {chapter}"
-        if start_verse:
-            search_ref += f":{start_verse}"
-            if end_verse and end_verse != start_verse:
-                search_ref += f"-{end_verse}"
+        if raw_rest:
+            search_ref = f"{book_bg_name.replace('+', ' ')} {raw_rest}"
+        else:
+            search_ref = f"{book_bg_name.replace('+', ' ')} {chapter}"
+            if start_verse:
+                search_ref += f":{start_verse}"
+                if end_verse and end_verse != start_verse:
+                    search_ref += f"-{end_verse}"
 
         params = {
             "search": search_ref,

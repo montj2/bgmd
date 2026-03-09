@@ -58,7 +58,7 @@ bgmd fetch "Psalm 23" -t "NABRE,KJV,RSVCE"
 ```
 
 ### Fetching Daily Readings
-Fetch today's lectionary readings:
+Fetch today's lectionary readings (defaults to Catholic Daily Mass via USCCB):
 ```bash
 bgmd lectionary
 ```
@@ -66,6 +66,15 @@ bgmd lectionary
 Compare today's readings in multiple translations:
 ```bash
 bgmd lectionary --translation "NABRE,RSVCE"
+```
+
+Switch between **Catholic (USCCB)** and **Protestant (Vanderbilt/RCL)** sources:
+```bash
+bgmd lectionary --source vanderbilt
+```
+Or set your permanent preference:
+```bash
+bgmd config-set lectionary_source vanderbilt
 ```
 
 Fetch readings for a specific date:

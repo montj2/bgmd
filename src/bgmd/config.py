@@ -12,6 +12,8 @@ class Settings:
     cache_dir: Optional[str] = None
     no_randomize: bool = False
     no_jitter: bool = False
+    psalm_mapping: bool = True
+    lectionary_source: str = "usccb" # Default to USCCB as per user preference
 
 class ConfigManager:
     def __init__(self):
