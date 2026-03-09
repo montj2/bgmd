@@ -7,56 +7,48 @@
 - **Purpose:** Successor to the legacy `bg2md` and `bg2obs-catholic` tools. It provides a unified, robust engine for scraping Bible passages and formatting them for digital note-taking.
 - **Main Technologies:**
     - **Language:** Python 3.11+
-    - **Fetching:** `curl_cffi` (with browser impersonation to bypass bot detection).
-    - **Parsing:** `BeautifulSoup4` (DOM-based parsing for stability).
-    - **CLI:** `Typer` & `Rich` (for a modern, user-friendly terminal experience).
-- **Architecture:**
-    - `bgmd/models.py`: Defines the core data structures (`Verse`, `Footnote`, `PassageDoc`).
-    - `bgmd/fetcher.py`: Manages network requests and local caching of raw HTML.
-    - `bgmd/parser.py`: Implements surgical DOM extraction logic.
-    - `bgmd/formatter.py`: Converts parsed models into Obsidian-ready Markdown.
-    - `bgmd/canon.py` & `bgmd/translations.py`: Manage Bible book metadata and translation mappings.
+    - **Fetching:** `curl_cffi` (with browser impersonation rotation).
+    - **Parsing:** `BeautifulSoup4` (DOM-based parsing).
+    - **CLI:** `Typer` & `Rich`.
+- **Architecture (src layout):**
+    - `src/bgmd/models.py`: Core data structures (`Verse`, `Footnote`, `PassageDoc`, `ComparisonDoc`).
+    - `src/bgmd/fetcher.py`: Network requests with jitter and global caching (`~/.cache/bgmd/`).
+    - `src/bgmd/parser.py`: Surgical DOM extraction logic (handles complex headers and verse ranges).
+    - `src/bgmd/formatter.py`: Markdown generation (Obsidian, Plain, Table, Interleaved).
+    - `src/bgmd/canon.py`: Bible book metadata loading via bundled CSV files.
+    - `src/bgmd/psalms.py`: Automatic mapping between Masoretic and Vulgate/LXX Psalm numbering.
+    - `src/bgmd/lectionary.py`: Integration with Vanderbilt Revised Common Lectionary (ICS + Web scraping).
+    - `src/bgmd/config.py`: Persistent user settings (`~/.config/bgmd/config.json`).
 
 ## Building and Running
 
 ### Installation
-Ensure you have Python 3.11+ and install dependencies:
+The project uses `uv` for dependency management and distribution.
 ```bash
-pip install typer[all] curl-cffi beautifulsoup4 lxml rich
+# Global install
+uv tool install .
+
+# Local development
+uv sync
 ```
 
 ### Key Commands
-- **Fetch a passage:**
-  ```bash
-  python -m bgmd.cli fetch "John 3"
-  ```
-- **Fetch with specific translation:**
-  ```bash
-  python -m bgmd.cli fetch "John 3" --translation RSVCE
-  ```
-- **Compare translations:**
-  ```bash
-  python -m bgmd.cli compare "John 3:16" --translations "NABRE,RSVCE"
-  ```
-- **List supported translations:**
-  ```bash
-  python -m bgmd.cli translations
-  ```
-- **View man page:**
-  ```bash
-  man ./man/bgmd.1
-  ```
-- **Bypass cache:**
-  ```bash
-  python -m bgmd.cli fetch "John 3" --no-cache
-  ```
+- **Fetch a passage:** `bgmd fetch "John 3"`
+- **Compare translations:** `bgmd compare "John 3:16" -t "NABRE,RSVCE"`
+- **Fetch lectionary:** `bgmd lectionary --translation "DRA,RSVCE"`
+- **Configure defaults:** `bgmd config-set translation RSVCE`
+- **View documentation:** `man ./man/bgmd.1`
 
 ## Development Conventions
 
-- **Caching:** The tool is conservative with server requests. All fetched HTML is stored in `.bgmd_cache/`. Use `--no-cache` only when necessary.
-- **Parsing Logic:** The parser prioritizes `span` elements with IDs starting with `en-` as these are the most reliable markers for verse content across Bible Gateway's evolving UI.
+- **Caching:** HTML is stored in `~/.cache/bgmd/`. Use `--no-cache` only when necessary.
+- **Psalm Mapping:** By default, the tool maps standard Psalm numbers to the traditional numbering for `DRA` and `VULGATE`. Disable with `--no-psalm-map`.
+- **Parsing Logic:**
+    - Reliable markers: `span` with class `text` and IDs starting with `en-`.
+    - Verse identification: Priority given to `.versenum` and `.chapternum` (first verse).
+    - Whitespace: Aggressively normalized to single spaces for Markdown table compatibility.
 - **Obsidian Formatting:** 
-    - Verse numbers are formatted as `###### v` (H6).
-    - Footnotes are converted to inline `^[]` format.
-    - YAML front matter is included for metadata.
-- **Dependencies:** Avoid adding new dependencies unless absolutely necessary for core functionality. Prefer standard library or well-established libraries like `BeautifulSoup4`.
+    - Verse numbers: `###### v` (H6).
+    - Footnotes: Inline `^[]` format.
+    - Front matter: Comprehensive YAML metadata.
+- **Packaging:** Uses `src` layout. All data files in `src/bgmd/books/` must be included via `pyproject.toml`.
