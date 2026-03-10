@@ -91,7 +91,6 @@ async def _fetch_doc(
     actual_chapter = chapter
     actual_verses = requested_verses
     
-    # Apply Reference Mapping
     if not no_map:
         mapped_ch, mapped_verses, note = map_reference(book.slug, chapter, requested_verses, translation, is_usccb=is_usccb)
         if mapped_ch != chapter or mapped_verses != requested_verses:
@@ -110,9 +109,6 @@ async def _fetch_doc(
     cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
     fetcher = Fetcher(translation, cache_dir=cache_dir)
     
-    # Fetch mechanism
-    # If we have specific mapped verses, we must be careful.
-    # For Daniel 3 additions in RSVCE, we MUST fetch the full chapter.
     if actual_verses or ',' in raw_rest:
         html = await fetcher.fetch_chapter(book.bg_name, actual_chapter, use_cache=not no_cache, randomize=not no_randomize, jitter=not no_jitter)
     else:
@@ -126,15 +122,10 @@ async def _fetch_doc(
             jitter=not no_jitter
         )
     
-    # We pass the ORIGINAL reference info to the parser so the output labels 
-    # match the lectionary/request, but the content comes from actual_verses.
     parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v, requested_verses=actual_verses)
     doc = parser.parse(html)
     
-    # IMPORTANT: If we remapped verses (e.g. 25 -> 2), the parser's verses will have number 2.
-    # We MUST remap them BACK to the requested numbers for the final Markdown display.
     if actual_verses != requested_verses and len(actual_verses) == len(requested_verses):
-        # Create a mapping from actual to requested
         v_map = dict(zip(sorted(list(actual_verses)), sorted(list(requested_verses))))
         for v in doc.verses:
             if v.number in v_map:
