@@ -2,7 +2,7 @@ from bs4 import BeautifulSoup, Tag
 from bgmd.models import PassageDoc, Verse, Footnote, CrossRef, SectionHeader
 import re
 import json
-from typing import Optional
+from typing import Optional, Set
 
 class Parser:
     def __init__(
@@ -11,34 +11,25 @@ class Parser:
         chapter: int, 
         translation: str,
         start_verse: Optional[int] = None,
-        end_verse: Optional[int] = None
+        end_verse: Optional[int] = None,
+        requested_verses: Optional[Set[int]] = None
     ):
         self.book = book
         self.chapter = chapter
         self.translation = translation
         self.start_verse = start_verse
         self.end_verse = end_verse
+        self.requested_verses = requested_verses
 
     def _get_verse_num(self, el: Tag) -> Optional[int]:
-        # 1. Check for .versenum or .chapternum child
-        v_num_tag = el.select_one(".versenum, .chapternum")
-        if v_num_tag:
-            v_text = v_num_tag.get_text().strip()
-            num_match = re.search(r'(\d+)', v_text)
-            if num_match:
-                val = int(num_match.group(1))
-                if 'chapternum' in v_num_tag.get('class', []):
-                    # HEURISTIC: In most cases, a chapternum at the start of a passage
-                    # is verse 1. This is true even if we've mapped the chapter.
-                    return 1
-                return val
-        
-        # 2. Check classes for Book-Chapter-Verse
-        for cls in el.get('class', []):
-            match = re.search(rf"-(\d+)$", cls)
-            if match:
-                return int(match.group(1))
-            
+        # Helper to get the number from a specific tag
+        v_text = el.get_text().strip()
+        num_match = re.search(r'(\d+)', v_text)
+        if num_match:
+            val = int(num_match.group(1))
+            if 'chapternum' in el.get('class', []):
+                return 1
+            return val
         return None
 
     def parse(self, html: str) -> PassageDoc:
@@ -74,12 +65,16 @@ class Parser:
         container = soup.select_one(".passage-text") or soup.select_one(".passage-content") or soup
         
         current_verse_num = 0
+        is_daniel_3 = self.book.lower() == "daniel" and self.chapter == 3
+        highest_hebrew_verse = 0
+        
+        # We iterate over top-level blocks
         for el in container.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'span', 'b']):
-            if any(p.name in ['h1', 'h2', 'h3', 'h4', 'h5'] for p in el.parents):
-                continue
+            # Skip if nested inside another processed element
             if any(p.name == 'span' and 'text' in p.get('class', []) for p in el.parents):
                 continue
 
+            # Headers
             if el.name in ['h1', 'h2', 'h3', 'h4', 'h5'] or (el.name == 'b' and 'inline-h3' in el.get('class', [])):
                 if 'chapter' in el.get('class', []): continue
                 header_text = el.get_text().strip()
@@ -90,48 +85,66 @@ class Parser:
                     ))
                 continue
 
+            # Verse Spans
             if el.name == 'span' and 'text' in el.get('class', []):
-                v_num = self._get_verse_num(el)
-                
-                if v_num is not None:
-                    if self.start_verse and v_num < self.start_verse: continue
-                    if self.end_verse and v_num > self.end_verse: continue
+                # Process the content of the span, which might contain multiple verses
+                for node in el.descendants:
+                    # If we find a verse number marker
+                    if isinstance(node, Tag) and ('versenum' in node.get('class', []) or 'chapternum' in node.get('class', [])):
+                        v_num = self._get_verse_num(node)
+                        if v_num is not None:
+                            # Daniel 3 Heuristic
+                            is_greek = False
+                            if is_daniel_3:
+                                if highest_hebrew_verse >= 23 and v_num < 90:
+                                    is_greek = True
+                                elif el.get('id') and 'Dan-3-' in str(el.get('class')):
+                                    highest_hebrew_verse = max(highest_hebrew_verse, v_num)
 
-                    if not doc.verses or doc.verses[-1].number != v_num:
-                        current_verse_num = v_num
-                        doc.verses.append(Verse(number=v_num, text=""))
+                            # Handle Priority/Duplicates
+                            existing = next((v for v in doc.verses if v.number == v_num), None)
+                            if existing:
+                                if is_greek:
+                                    doc.verses.remove(existing)
+                                else:
+                                    # Already have it, skip
+                                    continue
+
+                            # Filter
+                            if self.requested_verses:
+                                if v_num not in self.requested_verses:
+                                    current_verse_num = -1 # Signal skipping
+                                    continue
+                            else:
+                                if self.start_verse and v_num < self.start_verse:
+                                    current_verse_num = -1
+                                    continue
+                                if self.end_verse and v_num > self.end_verse:
+                                    current_verse_num = -1
+                                    continue
+
+                            current_verse_num = v_num
+                            doc.verses.append(Verse(number=v_num, text=""))
                     
-                    clean_text = ""
-                    for node in el.children:
-                        if isinstance(node, Tag):
+                    elif isinstance(node, str):
+                        # Text fragment
+                        if current_verse_num > 0:
+                            doc.verses[-1].text += node
+                    
+                    elif isinstance(node, Tag):
+                        # Other content (footnotes, etc)
+                        if current_verse_num > 0:
                             classes = node.get('class', [])
                             if 'footnote' in classes:
                                 doc.verses[-1].footnote_refs.append(node.get_text().strip('[]'))
                             elif 'crossreference' in classes:
                                 doc.verses[-1].crossref_refs.append(node.get_text().strip('()'))
-                            elif 'versenum' in classes or 'chapternum' in classes:
-                                continue
-                            elif 'inline-h3' in classes:
-                                h_text = node.get_text().strip()
-                                if h_text and not any(sh.text == h_text for h in doc.section_headers):
-                                    doc.section_headers.append(SectionHeader(
-                                        before_verse=current_verse_num,
-                                        text=h_text
-                                    ))
-                            else:
-                                clean_text += node.get_text()
-                        else:
-                            clean_text += str(node)
-                    
-                    doc.verses[-1].text += " " + clean_text
 
+        # Final cleanup
         for v in doc.verses:
             v.text = re.sub(rf'^Chapter\s+\d+\s*', '', v.text, flags=re.IGNORECASE)
-            # STRIP ALL NEWLINES AND TABS
             v.text = " ".join(v.text.split()).strip()
-            # Special case for verse 1: BibleGateway often includes the chapter number
-            # in the text of verse 1. We strip it if it looks like a chapter prefix.
-            v.text = re.sub(r'^\d+\s+', '', v.text)
+            # Remove leading verse number if it was duplicated in text
             v.text = re.sub(rf'^{v.number}\s*', '', v.text)
             v.text = v.text.replace('\xa0', ' ').strip()
 

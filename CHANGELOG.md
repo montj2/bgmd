@@ -2,12 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.6] - 2026-03-08
-### Added
-- Implemented automatic Psalm numbering mapping for Vulgate-style translations (DRA, VULGATE). This allows users to use modern Masoretic numbering (e.g. Psalm 23) and automatically receive the correct traditional content (e.g. DRA Psalm 22).
-- Added `--no-psalm-map` flag to disable this behavior.
+## [0.1.9] - 2026-03-09
+### Fixed
+- Fixed Daniel 3 numbering for Catholic lectionary. References from the USCCB (using NABRE numbering) are now correctly mapped to the internal numbering of other translations like RSVCE.
+- Re-engineered the parser to handle multiple verses within a single HTML span, common in many Bible Gateway translations.
+- Implemented verse priority to correctly choose Greek additions over Hebrew text when both exist in the same chapter (e.g. Daniel 3).
 
-## [0.1.5] - 2026-03-08
+## [0.1.8] - 2026-03-09
+### Added
+- Support for disjoint verse ranges (references with commas, e.g., "Daniel 3:25, 34-43") in the lectionary and fetch commands.
+- Implemented automatic full-chapter fallback when disjoint ranges are requested to ensure all verse spans are captured.
+
+## [0.1.7] - 2026-03-09
 ### Fixed
 - Fixed Markdown table formatting in `compare` and `lectionary` commands by bypassing terminal formatting and normalizing whitespace.
 

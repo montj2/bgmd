@@ -2,7 +2,7 @@ import typer
 import asyncio
 import re
 from datetime import date as date_obj
-from typing import List, Optional
+from typing import List, Optional, Tuple, Set
 from bgmd.canon import Canon
 from bgmd.fetcher import Fetcher
 from bgmd.parser import Parser
@@ -11,7 +11,7 @@ from bgmd.translations import COMMON_TRANSLATIONS, get_translation
 from bgmd.lectionary import get_provider
 from bgmd.config import config
 from bgmd.models import ComparisonDoc, PassageDoc
-from bgmd.psalms import VULGATE_NUMBERED_VERSIONS, map_mt_to_vulgate
+from bgmd.mapping import map_reference
 from rich.console import Console
 from rich.table import Table
 from pathlib import Path
@@ -22,7 +22,6 @@ app = typer.Typer()
 console = Console(highlight=False, soft_wrap=True)
 
 def parse_reference(ref: str):
-    # Support "2 Kings 5:1-15ab", "Psalm 42:2, 3"
     match = re.match(r'^([1-3]?\s*[a-zA-Z\s]+?)\s*(\d+.*)$', ref.strip())
     if not match:
         return None
@@ -30,32 +29,41 @@ def parse_reference(ref: str):
     book_name = match.group(1).strip()
     rest = match.group(2).strip()
     
-    # Extract chapter
     chapter_match = re.match(r'^(\d+)', rest)
     if not chapter_match:
         return None
     chapter = int(chapter_match.group(1))
     
-    # Heuristic for labels
     start_v = None
     end_v = None
+    requested_verses: Set[int] = set()
     
-    verse_part_match = re.search(r':(\d+)', rest)
-    if verse_part_match:
-        start_v = int(verse_part_match.group(1))
-        # Hyphenated range
-        end_match = re.search(r'-(\d+)', rest)
-        if end_match:
-            end_v = int(end_match.group(1))
-        # Comma separated
-        elif ',' in rest:
-            # For commas, we don't have a single end_v. 
-            # We'll set end_v to None to signal a complex range to the fetcher
-            end_v = None
-        else:
-            end_v = start_v
-            
-    return book_name, chapter, start_v, end_v, rest
+    if ':' in rest:
+        v_part = rest.split(':', 1)[1]
+        v_part = v_part.replace(' and ', ', ')
+        fragments = [f.strip() for f in v_part.split(',')]
+        
+        for frag in fragments:
+            clean_frag = re.sub(r'[a-z]+', '', frag).strip()
+            if '-' in clean_frag:
+                try:
+                    s, e = map(int, clean_frag.split('-', 1))
+                    for i in range(s, e + 1):
+                        requested_verses.add(i)
+                    if start_v is None or s < start_v: start_v = s
+                    if end_v is None or e > end_v: end_v = e
+                except ValueError:
+                    pass
+            elif clean_frag:
+                try:
+                    val = int(clean_frag)
+                    requested_verses.add(val)
+                    if start_v is None or val < start_v: start_v = val
+                    if end_v is None or val > end_v: end_v = val
+                except ValueError:
+                    pass
+                    
+    return book_name, chapter, start_v, end_v, rest, requested_verses
 
 async def _fetch_doc(
     reference: str,
@@ -65,7 +73,8 @@ async def _fetch_doc(
     no_randomize: bool,
     no_jitter: bool,
     debug: bool,
-    no_psalm_map: bool = False
+    no_map: bool = False,
+    is_usccb: bool = False
 ) -> Optional[PassageDoc]:
     canon = Canon(canon_name)
     parsed = parse_reference(reference)
@@ -73,68 +82,65 @@ async def _fetch_doc(
         console.print(f"[bold red]Error:[/bold red] Invalid reference format '{reference}'.")
         return None
         
-    book_name, chapter, start_v, end_v, raw_rest = parsed
+    book_name, chapter, start_v, end_v, raw_rest, requested_verses = parsed
     book = canon.get_book(book_name)
     if not book:
         console.print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
         return None
 
     actual_chapter = chapter
-    actual_start_v = start_v
-    actual_end_v = end_v
+    actual_verses = requested_verses
     
-    # Determine the search string for BibleGateway
-    # If it's a simple chapter:book, use our existing logic
-    # If it has commas or suffixes, we might want to be more careful.
-    
-    # Check if we need Psalm mapping
-    if book.slug == "psalms" and translation.upper() in VULGATE_NUMBERED_VERSIONS and not no_psalm_map:
-        mapped_ch, mapped_start, mapped_end, note = map_mt_to_vulgate(chapter, start_v, end_v)
-        if mapped_ch != chapter or note:
+    # Apply Reference Mapping
+    if not no_map:
+        mapped_ch, mapped_verses, note = map_reference(book.slug, chapter, requested_verses, translation, is_usccb=is_usccb)
+        if mapped_ch != chapter or mapped_verses != requested_verses:
             if not debug:
                 msg = f"[cyan]Mapping {book.display_name} {chapter}"
-                if start_v: msg += f":{start_v}"
+                if requested_verses: msg += f" (verses {sorted(list(requested_verses))})"
                 msg += f" -> {book.display_name} {mapped_ch}"
-                if mapped_start: msg += f":{mapped_start}"
+                if mapped_verses: msg += f" (verses {sorted(list(mapped_verses))})"
                 msg += f" for {translation}[/cyan]"
                 console.print(msg)
                 if note: console.print(f"[italic]{note}[/italic]")
             
             actual_chapter = mapped_ch
-            # Adjust the raw_rest for the mapped chapter
-            raw_rest = re.sub(r'^\d+', str(actual_chapter), raw_rest)
-            actual_start_v = mapped_start
-            actual_end_v = mapped_end
+            actual_verses = mapped_verses
 
     cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
     fetcher = Fetcher(translation, cache_dir=cache_dir)
     
-    # New logic: if end_v is None but there was a start_v, it's a complex range.
-    # We'll pass the full book name + raw_rest to fetch_reference.
-    if start_v is not None and end_v is None:
-        # Complex range (e.g. "42:2, 3")
-        # We need a new method in fetcher or update existing one
-        html = await fetcher.fetch_reference(
-            book.bg_name, 
-            actual_chapter, 
-            raw_rest=raw_rest, # Pass the raw string
-            use_cache=not no_cache,
-            randomize=not no_randomize,
-            jitter=not no_jitter
-        )
+    # Fetch mechanism
+    # If we have specific mapped verses, we must be careful.
+    # For Daniel 3 additions in RSVCE, we MUST fetch the full chapter.
+    if actual_verses or ',' in raw_rest:
+        html = await fetcher.fetch_chapter(book.bg_name, actual_chapter, use_cache=not no_cache, randomize=not no_randomize, jitter=not no_jitter)
     else:
         html = await fetcher.fetch_reference(
             book.bg_name, 
             actual_chapter, 
-            actual_start_v, 
-            actual_end_v,
+            start_v, 
+            end_v,
             use_cache=not no_cache,
             randomize=not no_randomize,
             jitter=not no_jitter
         )
     
-    parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v)
-    return parser.parse(html)
+    # We pass the ORIGINAL reference info to the parser so the output labels 
+    # match the lectionary/request, but the content comes from actual_verses.
+    parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v, requested_verses=actual_verses)
+    doc = parser.parse(html)
+    
+    # IMPORTANT: If we remapped verses (e.g. 25 -> 2), the parser's verses will have number 2.
+    # We MUST remap them BACK to the requested numbers for the final Markdown display.
+    if actual_verses != requested_verses and len(actual_verses) == len(requested_verses):
+        # Create a mapping from actual to requested
+        v_map = dict(zip(sorted(list(actual_verses)), sorted(list(requested_verses))))
+        for v in doc.verses:
+            if v.number in v_map:
+                v.number = v_map[v.number]
+                
+    return doc
 
 async def _fetch_and_format(
     reference: str,
@@ -145,9 +151,10 @@ async def _fetch_and_format(
     no_randomize: bool,
     no_jitter: bool,
     debug: bool,
-    no_psalm_map: bool = False
+    no_map: bool = False,
+    is_usccb: bool = False
 ) -> Optional[str]:
-    doc = await _fetch_doc(reference, translation, canon_name, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
+    doc = await _fetch_doc(reference, translation, canon_name, no_cache, no_randomize, no_jitter, debug, no_map, is_usccb)
     if not doc:
         return None
     formatter = Formatter(mode)
@@ -163,7 +170,7 @@ def fetch(
     no_cache: bool = typer.Option(False, "--no-cache", help="Skip local cache"),
     no_randomize: bool = typer.Option(config.settings.no_randomize, "--no-randomize"),
     no_jitter: bool = typer.Option(config.settings.no_jitter, "--no-jitter"),
-    no_psalm_map: bool = typer.Option(False, "--no-psalm-map"),
+    no_map: bool = typer.Option(False, "--no-map", help="Disable automatic numbering mapping"),
     debug: bool = typer.Option(False, "--debug"),
 ):
     """Fetch a Bible passage."""
@@ -172,14 +179,14 @@ def fetch(
             translations = [t.strip() for t in translation.split(',')]
             docs = []
             for t in translations:
-                doc = await _fetch_doc(reference, t, canon_name, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
+                doc = await _fetch_doc(reference, t, canon_name, no_cache, no_randomize, no_jitter, debug, no_map)
                 if doc: docs.append(doc)
             if docs:
                 comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
                 output = Formatter(mode).format_comparison(comp, layout=layout)
                 sys.stdout.write(output + "\n")
         else:
-            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
+            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug, no_map)
             if output: sys.stdout.write(output + "\n")
 
     asyncio.run(run())
@@ -190,7 +197,7 @@ def compare(
     translations: str = typer.Option(config.settings.translation, "--translations", "-t"),
     layout: str = typer.Option("table", "--layout", "-l"),
     canon_name: str = typer.Option(config.settings.canon, "--canon"),
-    no_psalm_map: bool = typer.Option(False, "--no-psalm-map"),
+    no_map: bool = typer.Option(False, "--no-map"),
     no_cache: bool = typer.Option(False, "--no-cache"),
 ):
     """Compare multiple translations side-by-side."""
@@ -198,7 +205,7 @@ def compare(
         trans_list = [t.strip() for t in translations.split(',')]
         docs = []
         for t in trans_list:
-            doc = await _fetch_doc(reference, t, canon_name, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
+            doc = await _fetch_doc(reference, t, canon_name, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_map)
             if doc: docs.append(doc)
         if docs:
             comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
@@ -214,7 +221,7 @@ def lectionary(
     mode: str = typer.Option(config.settings.mode, "--mode", "-m"),
     layout: str = typer.Option("table", "--layout", "-l"),
     source: str = typer.Option(config.settings.lectionary_source, "--source", "-s", help="Lectionary source (usccb, vanderbilt)"),
-    no_psalm_map: bool = typer.Option(False, "--no-psalm-map"),
+    no_map: bool = typer.Option(False, "--no-map"),
     no_cache: bool = typer.Option(False, "--no-cache"),
 ):
     """Fetch daily lectionary readings for a given date."""
@@ -237,19 +244,20 @@ def lectionary(
 
         is_comparison = ',' in translation
         trans_list = [t.strip() for t in translation.split(',')] if is_comparison else [translation]
+        is_usccb = source.lower() == "usccb"
 
         for ref in refs:
             console.print(f"\n[bold blue]>>> {ref}[/bold blue]")
             if is_comparison:
                 docs = []
                 for t in trans_list:
-                    doc = await _fetch_doc(ref, t, config.settings.canon, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
+                    doc = await _fetch_doc(ref, t, config.settings.canon, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_map, is_usccb=is_usccb)
                     if doc: docs.append(doc)
                 if docs:
                     comp = ComparisonDoc(reference=ref, translations=[d.translation for d in docs], docs=docs)
                     sys.stdout.write(Formatter(mode).format_comparison(comp, layout=layout) + "\n")
             else:
-                output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
+                output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_map, is_usccb=is_usccb)
                 if output:
                     sys.stdout.write(output + "\n")
             
