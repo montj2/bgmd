@@ -1,0 +1,687 @@
+commit 63b113400a090afbb833206838c5986ac92b1878
+Author: James Montgomery <james@bitrefactory.com>
+Date:   Tue Mar 10 07:24:32 2026 -0400
+
+    Fix Daniel 3 mapping and re-engineer parser for multi-verse spans
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index d21a9d0..7054945 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,12 +2,18 @@
+ 
+ All notable changes to this project will be documented in this file.
+ 
+-## [0.1.6] - 2026-03-08
+-### Added
+-- Implemented automatic Psalm numbering mapping for Vulgate-style translations (DRA, VULGATE). This allows users to use modern Masoretic numbering (e.g. Psalm 23) and automatically receive the correct traditional content (e.g. DRA Psalm 22).
+-- Added `--no-psalm-map` flag to disable this behavior.
++## [0.1.9] - 2026-03-09
++### Fixed
++- Fixed Daniel 3 numbering for Catholic lectionary. References from the USCCB (using NABRE numbering) are now correctly mapped to the internal numbering of other translations like RSVCE.
++- Re-engineered the parser to handle multiple verses within a single HTML span, common in many Bible Gateway translations.
++- Implemented verse priority to correctly choose Greek additions over Hebrew text when both exist in the same chapter (e.g. Daniel 3).
+ 
+-## [0.1.5] - 2026-03-08
++## [0.1.8] - 2026-03-09
++### Added
++- Support for disjoint verse ranges (references with commas, e.g., "Daniel 3:25, 34-43") in the lectionary and fetch commands.
++- Implemented automatic full-chapter fallback when disjoint ranges are requested to ensure all verse spans are captured.
++
++## [0.1.7] - 2026-03-09
+ ### Fixed
+ - Fixed Markdown table formatting in `compare` and `lectionary` commands by bypassing terminal formatting and normalizing whitespace.
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 31d50b4..44b3504 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "bgmd"
+-version = "0.1.7"
++version = "0.1.9"
+ description = "Modern Bible Gateway to Markdown tool optimized for Obsidian"
+ readme = "README.md"
+ requires-python = ">=3.11"
+diff --git a/src/bgmd/cli.py b/src/bgmd/cli.py
+index 114ca92..542f23c 100644
+--- a/src/bgmd/cli.py
++++ b/src/bgmd/cli.py
+@@ -2,7 +2,7 @@ import typer
+ import asyncio
+ import re
+ from datetime import date as date_obj
+-from typing import List, Optional
++from typing import List, Optional, Tuple, Set
+ from bgmd.canon import Canon
+ from bgmd.fetcher import Fetcher
+ from bgmd.parser import Parser
+@@ -11,7 +11,7 @@ from bgmd.translations import COMMON_TRANSLATIONS, get_translation
+ from bgmd.lectionary import get_provider
+ from bgmd.config import config
+ from bgmd.models import ComparisonDoc, PassageDoc
+-from bgmd.psalms import VULGATE_NUMBERED_VERSIONS, map_mt_to_vulgate
++from bgmd.mapping import map_reference
+ from rich.console import Console
+ from rich.table import Table
+ from pathlib import Path
+@@ -22,7 +22,6 @@ app = typer.Typer()
+ console = Console(highlight=False, soft_wrap=True)
+ 
+ def parse_reference(ref: str):
+-    # Support "2 Kings 5:1-15ab", "Psalm 42:2, 3"
+     match = re.match(r'^([1-3]?\s*[a-zA-Z\s]+?)\s*(\d+.*)$', ref.strip())
+     if not match:
+         return None
+@@ -30,32 +29,41 @@ def parse_reference(ref: str):
+     book_name = match.group(1).strip()
+     rest = match.group(2).strip()
+     
+-    # Extract chapter
+     chapter_match = re.match(r'^(\d+)', rest)
+     if not chapter_match:
+         return None
+     chapter = int(chapter_match.group(1))
+     
+-    # Heuristic for labels
+     start_v = None
+     end_v = None
++    requested_verses: Set[int] = set()
+     
+-    verse_part_match = re.search(r':(\d+)', rest)
+-    if verse_part_match:
+-        start_v = int(verse_part_match.group(1))
+-        # Hyphenated range
+-        end_match = re.search(r'-(\d+)', rest)
+-        if end_match:
+-            end_v = int(end_match.group(1))
+-        # Comma separated
+-        elif ',' in rest:
+-            # For commas, we don't have a single end_v. 
+-            # We'll set end_v to None to signal a complex range to the fetcher
+-            end_v = None
+-        else:
+-            end_v = start_v
+-            
+-    return book_name, chapter, start_v, end_v, rest
++    if ':' in rest:
++        v_part = rest.split(':', 1)[1]
++        v_part = v_part.replace(' and ', ', ')
++        fragments = [f.strip() for f in v_part.split(',')]
++        
++        for frag in fragments:
++            clean_frag = re.sub(r'[a-z]+', '', frag).strip()
++            if '-' in clean_frag:
++                try:
++                    s, e = map(int, clean_frag.split('-', 1))
++                    for i in range(s, e + 1):
++                        requested_verses.add(i)
++                    if start_v is None or s < start_v: start_v = s
++                    if end_v is None or e > end_v: end_v = e
++                except ValueError:
++                    pass
++            elif clean_frag:
++                try:
++                    val = int(clean_frag)
++                    requested_verses.add(val)
++                    if start_v is None or val < start_v: start_v = val
++                    if end_v is None or val > end_v: end_v = val
++                except ValueError:
++                    pass
++                    
++    return book_name, chapter, start_v, end_v, rest, requested_verses
+ 
+ async def _fetch_doc(
+     reference: str,
+@@ -65,7 +73,8 @@ async def _fetch_doc(
+     no_randomize: bool,
+     no_jitter: bool,
+     debug: bool,
+-    no_psalm_map: bool = False
++    no_map: bool = False,
++    is_usccb: bool = False
+ ) -> Optional[PassageDoc]:
+     canon = Canon(canon_name)
+     parsed = parse_reference(reference)
+@@ -73,68 +82,65 @@ async def _fetch_doc(
+         console.print(f"[bold red]Error:[/bold red] Invalid reference format '{reference}'.")
+         return None
+         
+-    book_name, chapter, start_v, end_v, raw_rest = parsed
++    book_name, chapter, start_v, end_v, raw_rest, requested_verses = parsed
+     book = canon.get_book(book_name)
+     if not book:
+         console.print(f"[bold red]Error:[/bold red] Book '{book_name}' not found.")
+         return None
+ 
+     actual_chapter = chapter
+-    actual_start_v = start_v
+-    actual_end_v = end_v
++    actual_verses = requested_verses
+     
+-    # Determine the search string for BibleGateway
+-    # If it's a simple chapter:book, use our existing logic
+-    # If it has commas or suffixes, we might want to be more careful.
+-    
+-    # Check if we need Psalm mapping
+-    if book.slug == "psalms" and translation.upper() in VULGATE_NUMBERED_VERSIONS and not no_psalm_map:
+-        mapped_ch, mapped_start, mapped_end, note = map_mt_to_vulgate(chapter, start_v, end_v)
+-        if mapped_ch != chapter or note:
++    # Apply Reference Mapping
++    if not no_map:
++        mapped_ch, mapped_verses, note = map_reference(book.slug, chapter, requested_verses, translation, is_usccb=is_usccb)
++        if mapped_ch != chapter or mapped_verses != requested_verses:
+             if not debug:
+                 msg = f"[cyan]Mapping {book.display_name} {chapter}"
+-                if start_v: msg += f":{start_v}"
++                if requested_verses: msg += f" (verses {sorted(list(requested_verses))})"
+                 msg += f" -> {book.display_name} {mapped_ch}"
+-                if mapped_start: msg += f":{mapped_start}"
++                if mapped_verses: msg += f" (verses {sorted(list(mapped_verses))})"
+                 msg += f" for {translation}[/cyan]"
+                 console.print(msg)
+                 if note: console.print(f"[italic]{note}[/italic]")
+             
+             actual_chapter = mapped_ch
+-            # Adjust the raw_rest for the mapped chapter
+-            raw_rest = re.sub(r'^\d+', str(actual_chapter), raw_rest)
+-            actual_start_v = mapped_start
+-            actual_end_v = mapped_end
++            actual_verses = mapped_verses
+ 
+     cache_dir = Path(config.settings.cache_dir) if config.settings.cache_dir else None
+     fetcher = Fetcher(translation, cache_dir=cache_dir)
+     
+-    # New logic: if end_v is None but there was a start_v, it's a complex range.
+-    # We'll pass the full book name + raw_rest to fetch_reference.
+-    if start_v is not None and end_v is None:
+-        # Complex range (e.g. "42:2, 3")
+-        # We need a new method in fetcher or update existing one
+-        html = await fetcher.fetch_reference(
+-            book.bg_name, 
+-            actual_chapter, 
+-            raw_rest=raw_rest, # Pass the raw string
+-            use_cache=not no_cache,
+-            randomize=not no_randomize,
+-            jitter=not no_jitter
+-        )
++    # Fetch mechanism
++    # If we have specific mapped verses, we must be careful.
++    # For Daniel 3 additions in RSVCE, we MUST fetch the full chapter.
++    if actual_verses or ',' in raw_rest:
++        html = await fetcher.fetch_chapter(book.bg_name, actual_chapter, use_cache=not no_cache, randomize=not no_randomize, jitter=not no_jitter)
+     else:
+         html = await fetcher.fetch_reference(
+             book.bg_name, 
+             actual_chapter, 
+-            actual_start_v, 
+-            actual_end_v,
++            start_v, 
++            end_v,
+             use_cache=not no_cache,
+             randomize=not no_randomize,
+             jitter=not no_jitter
+         )
+     
+-    parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v)
+-    return parser.parse(html)
++    # We pass the ORIGINAL reference info to the parser so the output labels 
++    # match the lectionary/request, but the content comes from actual_verses.
++    parser = Parser(book.display_name, chapter, translation, start_verse=start_v, end_verse=end_v, requested_verses=actual_verses)
++    doc = parser.parse(html)
++    
++    # IMPORTANT: If we remapped verses (e.g. 25 -> 2), the parser's verses will have number 2.
++    # We MUST remap them BACK to the requested numbers for the final Markdown display.
++    if actual_verses != requested_verses and len(actual_verses) == len(requested_verses):
++        # Create a mapping from actual to requested
++        v_map = dict(zip(sorted(list(actual_verses)), sorted(list(requested_verses))))
++        for v in doc.verses:
++            if v.number in v_map:
++                v.number = v_map[v.number]
++                
++    return doc
+ 
+ async def _fetch_and_format(
+     reference: str,
+@@ -145,9 +151,10 @@ async def _fetch_and_format(
+     no_randomize: bool,
+     no_jitter: bool,
+     debug: bool,
+-    no_psalm_map: bool = False
++    no_map: bool = False,
++    is_usccb: bool = False
+ ) -> Optional[str]:
+-    doc = await _fetch_doc(reference, translation, canon_name, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
++    doc = await _fetch_doc(reference, translation, canon_name, no_cache, no_randomize, no_jitter, debug, no_map, is_usccb)
+     if not doc:
+         return None
+     formatter = Formatter(mode)
+@@ -163,7 +170,7 @@ def fetch(
+     no_cache: bool = typer.Option(False, "--no-cache", help="Skip local cache"),
+     no_randomize: bool = typer.Option(config.settings.no_randomize, "--no-randomize"),
+     no_jitter: bool = typer.Option(config.settings.no_jitter, "--no-jitter"),
+-    no_psalm_map: bool = typer.Option(False, "--no-psalm-map"),
++    no_map: bool = typer.Option(False, "--no-map", help="Disable automatic numbering mapping"),
+     debug: bool = typer.Option(False, "--debug"),
+ ):
+     """Fetch a Bible passage."""
+@@ -172,14 +179,14 @@ def fetch(
+             translations = [t.strip() for t in translation.split(',')]
+             docs = []
+             for t in translations:
+-                doc = await _fetch_doc(reference, t, canon_name, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
++                doc = await _fetch_doc(reference, t, canon_name, no_cache, no_randomize, no_jitter, debug, no_map)
+                 if doc: docs.append(doc)
+             if docs:
+                 comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
+                 output = Formatter(mode).format_comparison(comp, layout=layout)
+                 sys.stdout.write(output + "\n")
+         else:
+-            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug, no_psalm_map)
++            output = await _fetch_and_format(reference, translation, canon_name, mode, no_cache, no_randomize, no_jitter, debug, no_map)
+             if output: sys.stdout.write(output + "\n")
+ 
+     asyncio.run(run())
+@@ -190,7 +197,7 @@ def compare(
+     translations: str = typer.Option(config.settings.translation, "--translations", "-t"),
+     layout: str = typer.Option("table", "--layout", "-l"),
+     canon_name: str = typer.Option(config.settings.canon, "--canon"),
+-    no_psalm_map: bool = typer.Option(False, "--no-psalm-map"),
++    no_map: bool = typer.Option(False, "--no-map"),
+     no_cache: bool = typer.Option(False, "--no-cache"),
+ ):
+     """Compare multiple translations side-by-side."""
+@@ -198,7 +205,7 @@ def compare(
+         trans_list = [t.strip() for t in translations.split(',')]
+         docs = []
+         for t in trans_list:
+-            doc = await _fetch_doc(reference, t, canon_name, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
++            doc = await _fetch_doc(reference, t, canon_name, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_map)
+             if doc: docs.append(doc)
+         if docs:
+             comp = ComparisonDoc(reference=reference, translations=[d.translation for d in docs], docs=docs)
+@@ -214,7 +221,7 @@ def lectionary(
+     mode: str = typer.Option(config.settings.mode, "--mode", "-m"),
+     layout: str = typer.Option("table", "--layout", "-l"),
+     source: str = typer.Option(config.settings.lectionary_source, "--source", "-s", help="Lectionary source (usccb, vanderbilt)"),
+-    no_psalm_map: bool = typer.Option(False, "--no-psalm-map"),
++    no_map: bool = typer.Option(False, "--no-map"),
+     no_cache: bool = typer.Option(False, "--no-cache"),
+ ):
+     """Fetch daily lectionary readings for a given date."""
+@@ -237,19 +244,20 @@ def lectionary(
+ 
+         is_comparison = ',' in translation
+         trans_list = [t.strip() for t in translation.split(',')] if is_comparison else [translation]
++        is_usccb = source.lower() == "usccb"
+ 
+         for ref in refs:
+             console.print(f"\n[bold blue]>>> {ref}[/bold blue]")
+             if is_comparison:
+                 docs = []
+                 for t in trans_list:
+-                    doc = await _fetch_doc(ref, t, config.settings.canon, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
++                    doc = await _fetch_doc(ref, t, config.settings.canon, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_map, is_usccb=is_usccb)
+                     if doc: docs.append(doc)
+                 if docs:
+                     comp = ComparisonDoc(reference=ref, translations=[d.translation for d in docs], docs=docs)
+                     sys.stdout.write(Formatter(mode).format_comparison(comp, layout=layout) + "\n")
+             else:
+-                output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_psalm_map)
++                output = await _fetch_and_format(ref, translation, config.settings.canon, mode, no_cache, config.settings.no_randomize, config.settings.no_jitter, False, no_map, is_usccb=is_usccb)
+                 if output:
+                     sys.stdout.write(output + "\n")
+             
+diff --git a/src/bgmd/mapping.py b/src/bgmd/mapping.py
+new file mode 100644
+index 0000000..6e9bcfd
+--- /dev/null
++++ b/src/bgmd/mapping.py
+@@ -0,0 +1,102 @@
++from typing import Optional, Tuple, List, Set
++
++# Translations known to use the LXX/Vulgate Psalm/Daniel numbering system
++# Modern Catholic Bibles like NABRE use this for Daniel 3 additions.
++VULGATE_STYLE_VERSIONS = ["DRA", "VULGATE", "NABRE"]
++
++def map_mt_to_vulgate_psalm(chapter: int, start_v: Optional[int] = None, end_v: Optional[int] = None) -> Tuple[int, Optional[int], Optional[int], str]:
++    """
++    Maps a Masoretic (Standard) Psalm reference to its Vulgate/LXX equivalent.
++    """
++    # 1-8: Identical
++    if 1 <= chapter <= 8:
++        return chapter, start_v, end_v, ""
++    
++    # 9-10: Combined into Ps 9 in Vulgate
++    if chapter == 9:
++        return 9, start_v, end_v, "Note: Combined into Ps 9 in Vulgate numbering."
++    if chapter == 10:
++        return 9, None, None, "Note: Psalm 10 (MT) is part of Psalm 9 in Vulgate."
++    
++    # 11-113: Offset by 1
++    if 11 <= chapter <= 113:
++        return chapter - 1, start_v, end_v, f"Mapping Psalm {chapter} -> {chapter-1} (Vulgate)"
++    
++    # 114-115: Combined into Ps 113 in Vulgate
++    if chapter == 114:
++        return 113, start_v, end_v, "Note: Combined into Ps 113 in Vulgate numbering."
++    if chapter == 115:
++        return 113, None, None, "Note: Psalm 115 (MT) is part of Psalm 113 in Vulgate."
++    
++    # 116: Split into Ps 114 and 115 in Vulgate
++    if chapter == 116:
++        return 114, None, None, "Note: Psalm 116 (MT) is split into Ps 114 and 115 in Vulgate."
++    
++    # 117-146: Offset by 1
++    if 117 <= chapter <= 146:
++        return chapter - 1, start_v, end_v, f"Mapping Psalm {chapter} -> {chapter-1} (Vulgate)"
++    
++    # 147: Split into Ps 146 and 147 in Vulgate
++    if chapter == 147:
++        return 146, None, None, "Note: Psalm 147 (MT) is split into Ps 146 and 147 in Vulgate."
++    
++    # 148-150: Identical
++    if 148 <= chapter <= 150:
++        return chapter, start_v, end_v, ""
++        
++    return chapter, start_v, end_v, ""
++
++def map_vulgate_to_mt_daniel(verses: Set[int]) -> Tuple[Set[int], str]:
++    """
++    Maps NABRE/Vulgate Daniel 3 numbering to MT/Hebrew numbering (used by RSVCE, ESV, etc).
++    NABRE 24-90 are the Greek additions.
++    NABRE 91-97 map to MT 24-30.
++    """
++    mapped = set()
++    note = ""
++    
++    for v in verses:
++        if v < 24:
++            mapped.add(v)
++        elif 24 <= v <= 90:
++            # These are the Greek additions. In RSVCE, these are inside Chapter 3
++            # but labeled with their own numbering starting from 1.
++            # Offset is 23 (24 -> 1, 25 -> 2).
++            mapped.add(v - 23)
++            note = "Note: Mapping Daniel 3 Greek additions to translation's internal numbering."
++        elif v >= 91:
++            # Shift back to Hebrew story
++            # 91 -> 24, 92 -> 25. Offset is 67.
++            mapped.add(v - 67)
++            
++    return mapped, note
++
++def map_reference(
++    book_slug: str, 
++    chapter: int, 
++    verses: Set[int], 
++    translation: str, 
++    is_usccb: bool = False
++) -> Tuple[int, Set[int], str]:
++    """
++    Unified entry point for reference mapping.
++    Returns (actual_chapter, actual_verses, note)
++    """
++    translation = translation.upper()
++    
++    # CASE 1: Psalm Mapping (Standard -> Vulgate)
++    if book_slug == "psalms" and translation in ["DRA", "VULGATE"]:
++        start_v = min(verses) if verses else None
++        end_v = max(verses) if verses else None
++        ch, s, e, note = map_mt_to_vulgate_psalm(chapter, start_v, end_v)
++        new_verses = set(range(s, e + 1)) if s and e else set()
++        return ch, new_verses, note
++
++    # CASE 2: Daniel 3 Mapping (USCCB/NABRE -> Standard/MT)
++    # Triggered if source is USCCB and translation uses MT numbering (RSVCE, ESV, etc)
++    if is_usccb and book_slug == "daniel" and chapter == 3:
++        if translation not in VULGATE_STYLE_VERSIONS:
++            new_verses, note = map_vulgate_to_mt_daniel(verses)
++            return chapter, new_verses, note
++            
++    return chapter, verses, ""
+diff --git a/src/bgmd/parser.py b/src/bgmd/parser.py
+index f02f856..91c762a 100644
+--- a/src/bgmd/parser.py
++++ b/src/bgmd/parser.py
+@@ -2,7 +2,7 @@ from bs4 import BeautifulSoup, Tag
+ from bgmd.models import PassageDoc, Verse, Footnote, CrossRef, SectionHeader
+ import re
+ import json
+-from typing import Optional
++from typing import Optional, Set
+ 
+ class Parser:
+     def __init__(
+@@ -11,34 +11,25 @@ class Parser:
+         chapter: int, 
+         translation: str,
+         start_verse: Optional[int] = None,
+-        end_verse: Optional[int] = None
++        end_verse: Optional[int] = None,
++        requested_verses: Optional[Set[int]] = None
+     ):
+         self.book = book
+         self.chapter = chapter
+         self.translation = translation
+         self.start_verse = start_verse
+         self.end_verse = end_verse
++        self.requested_verses = requested_verses
+ 
+     def _get_verse_num(self, el: Tag) -> Optional[int]:
+-        # 1. Check for .versenum or .chapternum child
+-        v_num_tag = el.select_one(".versenum, .chapternum")
+-        if v_num_tag:
+-            v_text = v_num_tag.get_text().strip()
+-            num_match = re.search(r'(\d+)', v_text)
+-            if num_match:
+-                val = int(num_match.group(1))
+-                if 'chapternum' in v_num_tag.get('class', []):
+-                    # HEURISTIC: In most cases, a chapternum at the start of a passage
+-                    # is verse 1. This is true even if we've mapped the chapter.
+-                    return 1
+-                return val
+-        
+-        # 2. Check classes for Book-Chapter-Verse
+-        for cls in el.get('class', []):
+-            match = re.search(rf"-(\d+)$", cls)
+-            if match:
+-                return int(match.group(1))
+-            
++        # Helper to get the number from a specific tag
++        v_text = el.get_text().strip()
++        num_match = re.search(r'(\d+)', v_text)
++        if num_match:
++            val = int(num_match.group(1))
++            if 'chapternum' in el.get('class', []):
++                return 1
++            return val
+         return None
+ 
+     def parse(self, html: str) -> PassageDoc:
+@@ -74,12 +65,16 @@ class Parser:
+         container = soup.select_one(".passage-text") or soup.select_one(".passage-content") or soup
+         
+         current_verse_num = 0
++        is_daniel_3 = self.book.lower() == "daniel" and self.chapter == 3
++        highest_hebrew_verse = 0
++        
++        # We iterate over top-level blocks
+         for el in container.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'span', 'b']):
+-            if any(p.name in ['h1', 'h2', 'h3', 'h4', 'h5'] for p in el.parents):
+-                continue
++            # Skip if nested inside another processed element
+             if any(p.name == 'span' and 'text' in p.get('class', []) for p in el.parents):
+                 continue
+ 
++            # Headers
+             if el.name in ['h1', 'h2', 'h3', 'h4', 'h5'] or (el.name == 'b' and 'inline-h3' in el.get('class', [])):
+                 if 'chapter' in el.get('class', []): continue
+                 header_text = el.get_text().strip()
+@@ -90,48 +85,66 @@ class Parser:
+                     ))
+                 continue
+ 
++            # Verse Spans
+             if el.name == 'span' and 'text' in el.get('class', []):
+-                v_num = self._get_verse_num(el)
+-                
+-                if v_num is not None:
+-                    if self.start_verse and v_num < self.start_verse: continue
+-                    if self.end_verse and v_num > self.end_verse: continue
++                # Process the content of the span, which might contain multiple verses
++                for node in el.descendants:
++                    # If we find a verse number marker
++                    if isinstance(node, Tag) and ('versenum' in node.get('class', []) or 'chapternum' in node.get('class', [])):
++                        v_num = self._get_verse_num(node)
++                        if v_num is not None:
++                            # Daniel 3 Heuristic
++                            is_greek = False
++                            if is_daniel_3:
++                                if highest_hebrew_verse >= 23 and v_num < 90:
++                                    is_greek = True
++                                elif el.get('id') and 'Dan-3-' in str(el.get('class')):
++                                    highest_hebrew_verse = max(highest_hebrew_verse, v_num)
+ 
+-                    if not doc.verses or doc.verses[-1].number != v_num:
+-                        current_verse_num = v_num
+-                        doc.verses.append(Verse(number=v_num, text=""))
++                            # Handle Priority/Duplicates
++                            existing = next((v for v in doc.verses if v.number == v_num), None)
++                            if existing:
++                                if is_greek:
++                                    doc.verses.remove(existing)
++                                else:
++                                    # Already have it, skip
++                                    continue
++
++                            # Filter
++                            if self.requested_verses:
++                                if v_num not in self.requested_verses:
++                                    current_verse_num = -1 # Signal skipping
++                                    continue
++                            else:
++                                if self.start_verse and v_num < self.start_verse:
++                                    current_verse_num = -1
++                                    continue
++                                if self.end_verse and v_num > self.end_verse:
++                                    current_verse_num = -1
++                                    continue
++
++                            current_verse_num = v_num
++                            doc.verses.append(Verse(number=v_num, text=""))
+                     
+-                    clean_text = ""
+-                    for node in el.children:
+-                        if isinstance(node, Tag):
++                    elif isinstance(node, str):
++                        # Text fragment
++                        if current_verse_num > 0:
++                            doc.verses[-1].text += node
++                    
++                    elif isinstance(node, Tag):
++                        # Other content (footnotes, etc)
++                        if current_verse_num > 0:
+                             classes = node.get('class', [])
+                             if 'footnote' in classes:
+                                 doc.verses[-1].footnote_refs.append(node.get_text().strip('[]'))
+                             elif 'crossreference' in classes:
+                                 doc.verses[-1].crossref_refs.append(node.get_text().strip('()'))
+-                            elif 'versenum' in classes or 'chapternum' in classes:
+-                                continue
+-                            elif 'inline-h3' in classes:
+-                                h_text = node.get_text().strip()
+-                                if h_text and not any(sh.text == h_text for h in doc.section_headers):
+-                                    doc.section_headers.append(SectionHeader(
+-                                        before_verse=current_verse_num,
+-                                        text=h_text
+-                                    ))
+-                            else:
+-                                clean_text += node.get_text()
+-                        else:
+-                            clean_text += str(node)
+-                    
+-                    doc.verses[-1].text += " " + clean_text
+ 
++        # Final cleanup
+         for v in doc.verses:
+             v.text = re.sub(rf'^Chapter\s+\d+\s*', '', v.text, flags=re.IGNORECASE)
+-            # STRIP ALL NEWLINES AND TABS
+             v.text = " ".join(v.text.split()).strip()
+-            # Special case for verse 1: BibleGateway often includes the chapter number
+-            # in the text of verse 1. We strip it if it looks like a chapter prefix.
+-            v.text = re.sub(r'^\d+\s+', '', v.text)
++            # Remove leading verse number if it was duplicated in text
+             v.text = re.sub(rf'^{v.number}\s*', '', v.text)
+             v.text = v.text.replace('\xa0', ' ').strip()
+ 
+diff --git a/src/bgmd/psalms.py b/src/bgmd/psalms.py
+deleted file mode 100644
+index f5861bd..0000000
+--- a/src/bgmd/psalms.py
++++ /dev/null
+@@ -1,50 +0,0 @@
+-from typing import Optional, Tuple, List
+-
+-# Translations known to use the LXX/Vulgate Psalm numbering system
+-VULGATE_NUMBERED_VERSIONS = ["DRA", "VULGATE"]
+-
+-def map_mt_to_vulgate(chapter: int, start_v: Optional[int] = None, end_v: Optional[int] = None) -> Tuple[int, Optional[int], Optional[int], str]:
+-    """
+-    Maps a Masoretic (Standard) Psalm reference to its Vulgate/LXX equivalent.
+-    Returns (new_chapter, new_start_v, new_end_v, note)
+-    """
+-    note = ""
+-    
+-    # 1-8: Identical
+-    if 1 <= chapter <= 8:
+-        return chapter, start_v, end_v, ""
+-    
+-    # 9-10: Combined into Ps 9 in Vulgate
+-    if chapter == 9:
+-        return 9, start_v, end_v, "Note: Combined into Ps 9 in Vulgate numbering."
+-    if chapter == 10:
+-        # MT 10 starts around LXX 9:22
+-        return 9, None, None, "Note: Psalm 10 (MT) is part of Psalm 9 in Vulgate. Verse mapping may vary."
+-    
+-    # 11-113: Offset by 1
+-    if 11 <= chapter <= 113:
+-        return chapter - 1, start_v, end_v, f"Mapping Psalm {chapter} -> {chapter-1} (Vulgate)"
+-    
+-    # 114-115: Combined into Ps 113 in Vulgate
+-    if chapter == 114:
+-        return 113, start_v, end_v, "Note: Combined into Ps 113 in Vulgate numbering."
+-    if chapter == 115:
+-        return 113, None, None, "Note: Psalm 115 (MT) is part of Psalm 113 in Vulgate. Verse mapping may vary."
+-    
+-    # 116: Split into Ps 114 and 115 in Vulgate
+-    if chapter == 116:
+-        return 114, None, None, "Note: Psalm 116 (MT) is split into Ps 114 and 115 in Vulgate."
+-    
+-    # 117-146: Offset by 1
+-    if 117 <= chapter <= 146:
+-        return chapter - 1, start_v, end_v, f"Mapping Psalm {chapter} -> {chapter-1} (Vulgate)"
+-    
+-    # 147: Split into Ps 146 and 147 in Vulgate
+-    if chapter == 147:
+-        return 146, None, None, "Note: Psalm 147 (MT) is split into Ps 146 and 147 in Vulgate."
+-    
+-    # 148-150: Identical
+-    if 148 <= chapter <= 150:
+-        return chapter, start_v, end_v, ""
+-        
+-    return chapter, start_v, end_v, ""
+diff --git a/uv.lock b/uv.lock
+index 5201d23..df5fee4 100644
+--- a/uv.lock
++++ b/uv.lock
+@@ -39,7 +39,7 @@ wheels = [
+ 
+ [[package]]
+ name = "bgmd"
+-version = "0.1.6"
++version = "0.1.7"
+ source = { editable = "." }
+ dependencies = [
+     { name = "beautifulsoup4" },
